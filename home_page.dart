@@ -10,7 +10,8 @@ import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:latlong2/latlong.dart' as fmlt;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:restart_tagxi/l10n/app_localizations.dart';
+import 'package:user/core/utils/custom_button.dart';
+import 'package:user/l10n/app_localizations.dart';
 import '../../../../common/pickup_icon.dart';
 import '../../../../core/utils/custom_divider.dart';
 import '../../../../core/utils/custom_loader.dart';
@@ -264,6 +265,9 @@ class _HomePageState extends State<HomePage>
                   mapType: context.read<HomeBloc>().mapType),
             );
           } else if (state is RecentSearchPlaceSelectState) {
+            context.read<HomeBloc>().add(ServiceLocationVerifyEvent(
+                address: [state.address], rideType: state.transportType));
+          } else if (state is ConfirmRideAddressState) {
             if (context.read<HomeBloc>().nearByVechileSubscription != null) {
               context.read<HomeBloc>().nearByVechileSubscription?.cancel();
               context.read<HomeBloc>().nearByVechileSubscription = null;
@@ -461,6 +465,47 @@ class _HomePageState extends State<HomePage>
                   requestBillData: state.requestBillData,
                   driverData: state.driverData),
             );
+          } else if (state is ServiceNotAvailableState) {
+            context.read<HomeBloc>().stopAddressList.clear();
+            showDialog(
+              context: context,
+              builder: (_) {
+                return AlertDialog(
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Align(
+                          alignment:
+                              context.read<HomeBloc>().textDirection == 'rtl'
+                                  ? Alignment.centerLeft
+                                  : Alignment.centerRight,
+                          child: InkWell(
+                              onTap: () {
+                                Navigator.pop(context);
+                              },
+                              child: Icon(Icons.cancel_outlined,
+                                  color: Theme.of(context).primaryColor))),
+                      Center(
+                        child: MyText(
+                            text: state.message,
+                            // AppLocalizations.of(context)!.serviceNotAvailable,
+                            maxLines: 4),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    Center(
+                      child: CustomButton(
+                        buttonName: AppLocalizations.of(context)!.okText,
+                        onTap: () {
+                          Navigator.pop(context);
+                        },
+                      ),
+                    )
+                  ],
+                );
+              },
+            );
           }
         },
         child: BlocBuilder<HomeBloc, HomeState>(
@@ -548,64 +593,12 @@ class _HomePageState extends State<HomePage>
                       color: Theme.of(context).dividerColor.withOpacity(0.4))),
               SizedBox(height: size.width * 0.02),
               recentSearchPlaces(size, context),
-              SizedBox(height: size.width * 0.025),
+              SizedBox(height: size.width * 0.01),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (context.read<HomeBloc>().isMultipleRide) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            MyText(
-                                text:
-                                    AppLocalizations.of(context)!.onGoingRides,
-                                textStyle: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium!
-                                    .copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: Theme.of(context)
-                                            .primaryColorDark)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: size.width * 0.01),
-                    onGoingRides(context, size),
-                  ],
-                  if (context.read<HomeBloc>().userData != null &&
-                      ((context
-                                  .read<HomeBloc>()
-                                  .userData!
-                                  .enableModulesForApplications ==
-                              'both') ||
-                          (context
-                                      .read<HomeBloc>()
-                                      .userData!
-                                      .enableModulesForApplications ==
-                                  'taxi' &&
-                              context
-                                  .read<HomeBloc>()
-                                  .userData!
-                                  .showRentalRide) ||
-                          (context
-                                      .read<HomeBloc>()
-                                      .userData!
-                                      .enableModulesForApplications ==
-                                  'delivery' &&
-                              context
-                                  .read<HomeBloc>()
-                                  .userData!
-                                  .showRentalRide)))
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: servicesWidget(context, size),
-                    ),
-                  if (context.read<HomeBloc>().userData != null &&
+                  if (context.read<HomeBloc>().isSheetAtTop == true &&
+                      context.read<HomeBloc>().userData != null &&
                       context
                           .read<HomeBloc>()
                           .userData!
@@ -649,7 +642,7 @@ class _HomePageState extends State<HomePage>
             ),
             child: Padding(
               padding: EdgeInsets.only(
-                  right: size.width * 0.020,
+                  right: size.width * 0.0,
                   left: size.width * 0,
                   top: size.width * 0.020,
                   bottom: size.width * 0.020),
@@ -796,7 +789,6 @@ class _HomePageState extends State<HomePage>
                                           .add(RideWithoutDestinationEvent());
                                     },
                                     child: Container(
-                                      // width: size.width * 0.075,
                                       height: size.width * 0.075,
                                       alignment: Alignment.center,
                                       child: MyText(
@@ -820,11 +812,74 @@ class _HomePageState extends State<HomePage>
                       ),
                     ],
                   ),
+                  if (context.read<HomeBloc>().isSheetAtTop == false &&
+                      context.read<HomeBloc>().userData != null &&
+                      context
+                          .read<HomeBloc>()
+                          .userData!
+                          .bannerImage
+                          .data
+                          .isNotEmpty) ...[
+                    SizedBox(height: size.width * 0.025),
+                    bannerWidget(context, size),
+                  ],
+                  if (context.read<HomeBloc>().userData != null &&
+                      ((context
+                                  .read<HomeBloc>()
+                                  .userData!
+                                  .enableModulesForApplications ==
+                              'both') ||
+                          (context
+                                      .read<HomeBloc>()
+                                      .userData!
+                                      .enableModulesForApplications ==
+                                  'taxi' &&
+                              context
+                                  .read<HomeBloc>()
+                                  .userData!
+                                  .showRentalRide) ||
+                          (context
+                                      .read<HomeBloc>()
+                                      .userData!
+                                      .enableModulesForApplications ==
+                                  'delivery' &&
+                              context
+                                  .read<HomeBloc>()
+                                  .userData!
+                                  .showRentalRide)))
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      child: servicesWidget(context, size),
+                    ),
+                  if (context.read<HomeBloc>().isMultipleRide) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          MyText(
+                              text: AppLocalizations.of(context)!.onGoingRides,
+                              textStyle: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium!
+                                  .copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color:
+                                          Theme.of(context).primaryColorDark)),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: size.width * 0.01),
+                    onGoingRides(context, size),
+                  ],
                   if (context
                       .read<HomeBloc>()
                       .recentSearchPlaces
                       .isNotEmpty) ...[
-                    SizedBox(height: size.width * 0.02),
+                    SizedBox(
+                        height: context.read<HomeBloc>().isSheetAtTop == false
+                            ? size.width * 0.01
+                            : size.width * 0.02),
                     ListView.builder(
                       itemCount:
                           context.read<HomeBloc>().recentSearchPlaces.length > 2
@@ -1164,16 +1219,10 @@ class _HomePageState extends State<HomePage>
                                   maxZoom: 20,
                                 ),
                                 children: [
-                                   fm.TileLayer(
-                                    urlTemplate: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? 'https://cartodb-basemaps-{s}.global.ssl.fastly.net/{z}/{x}/{y}@4x.png'
-                                        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                    fallbackUrl: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                                        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                    subdomains: const ['a', 'b', 'c', 'd', 'e'],
+                                  fm.TileLayer(
+                                    // minZoom: 10,
+                                    urlTemplate:
+                                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                     userAgentPackageName: 'com.example.app',
                                   ),
                                   fm.MarkerLayer(
@@ -1190,8 +1239,6 @@ class _HomePageState extends State<HomePage>
                                             return MapEntry(
                                               k,
                                               fm.Marker(
-                                                // key: Key('10'),
-                                                // rotate: true,
                                                 alignment: Alignment.topCenter,
                                                 point: fmlt.LatLng(
                                                     marker.position.latitude,
@@ -1277,44 +1324,41 @@ class _HomePageState extends State<HomePage>
                         ),
                       ),
                       if (context.read<HomeBloc>().confirmPinAddress)
-                        //Remove position for envato code
                         Positioned(
                           top: screenWidth * 0.1,
-                          // right: screenWidth * 0.38,
+                          right: screenWidth * 0.38,
                           child: Container(
                             height: size.height * 0.8,
-                            width: size.width,
                             alignment: Alignment.center,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  padding: EdgeInsets.only(
-                                      bottom: screenWidth * 0.6 +
-                                          size.width * 0.06),
-                                  child: Container(
-                                      padding: EdgeInsets.only(
-                                          left: size.width * 0.02,
-                                          right: size.width * 0.02,
-                                          top: size.width * 0.01,
-                                          bottom: size.width * 0.01),
-                                      decoration: BoxDecoration(
-                                        // color: Theme.of(context).dividerColor.withOpacity(0.9),
-                                        color: AppColors.white,
-                                        borderRadius: BorderRadius.circular(
-                                            size.width * 0.02),
-                                      ),
-                                      child: MyText(
-                                          text:
-                                              'Drag To Get Address Feature Not Available In demo',
-                                          textStyle: Theme.of(context)
-                                              .textTheme
-                                              .labelLarge!
-                                              .copyWith(
-                                                  color: AppColors.black))),
-                                )
-                              ],
-                            ),
+                            child: Padding(
+                                padding: EdgeInsets.only(
+                                    bottom:
+                                        screenWidth * 0.6 + size.width * 0.06),
+                                child: Row(
+                                  children: [
+                                    CustomButton(
+                                        height: size.width * 0.08,
+                                        width: size.width * 0.25,
+                                        onTap: () {
+                                          context
+                                              .read<HomeBloc>()
+                                              .confirmPinAddress = false;
+                                          context.read<HomeBloc>().add(
+                                              UpdateLocationEvent(
+                                                  isFromHomePage: true,
+                                                  latLng: context
+                                                      .read<HomeBloc>()
+                                                      .currentLatLng,
+                                                  mapType: context
+                                                      .read<HomeBloc>()
+                                                      .mapType));
+                                        },
+                                        textSize: 12,
+                                        buttonName:
+                                            AppLocalizations.of(context)!
+                                                .confirm)
+                                  ],
+                                )),
                           ),
                         ),
                     ],
@@ -1328,7 +1372,6 @@ class _HomePageState extends State<HomePage>
               right: size.width * 0.03,
               child: InkWell(
                 onTap: () {
-                  // Remove confirmPinAddress for envato code
                   context.read<HomeBloc>().confirmPinAddress = false;
                   context.read<HomeBloc>().add(
                       LocateMeEvent(mapType: context.read<HomeBloc>().mapType));
@@ -1517,7 +1560,19 @@ class _HomePageState extends State<HomePage>
                             ),
                             child: SingleChildScrollView(
                               physics: const NeverScrollableScrollPhysics(),
-                              child: bottomSheetBuilder(size, context),
+                              child: context.read<HomeBloc>().serviceAvailable
+                                  ? bottomSheetBuilder(size, context)
+                                  : Column(
+                                      children: [
+                                        Image.asset(AppImages.noDataFound,
+                                            height: size.width * 0.5,
+                                            width: size.width),
+                                        SizedBox(height: size.width * 0.02),
+                                        MyText(
+                                            text: AppLocalizations.of(context)!
+                                                .serviceNotAvailable)
+                                      ],
+                                    ),
                             ),
                           ),
                         ),
@@ -1765,14 +1820,7 @@ class _HomePageState extends State<HomePage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: MyText(
-            text: AppLocalizations.of(context)!.exclusiveOffers,
-            textStyle: Theme.of(context).textTheme.bodyLarge,
-          ),
-        ),
-        SizedBox(height: size.width * 0.025),
+        SizedBox(height: size.width * 0.01),
         CarouselSlider(
           items: List.generate(
             context.read<HomeBloc>().userData!.bannerImage.data.length,
