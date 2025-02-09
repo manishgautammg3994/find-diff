@@ -392,3 +392,4 @@ class OnGoingRidesPage extends StatelessWidget {
     );
   }
 }
+
