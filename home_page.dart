@@ -1,74 +1,37 @@
-// ignore_for_file: deprecated_member_use
-
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:carousel_slider_plus/carousel_slider_plus.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_map/flutter_map.dart' as fm;
-import 'package:latlong2/latlong.dart' as fmlt;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:restart_tagxi/l10n/app_localizations.dart';
-import '../../../../common/pickup_icon.dart';
-import '../../../../core/utils/custom_divider.dart';
+import 'package:user/common/pickup_icon.dart';
+import 'package:user/core/utils/custom_divider.dart';
+import 'package:user/l10n/app_localizations.dart';
+
+import '../../../../common/common.dart';
+import '../../../../core/utils/custom_button.dart';
 import '../../../../core/utils/custom_loader.dart';
 import '../../../../core/utils/custom_navigation_icon.dart';
-import '../../../account/presentation/pages/account_page.dart';
+import '../../../../core/utils/custom_text.dart';
+import '../../../../core/utils/custom_textfield.dart';
+import '../../../account/presentation/pages/fav_location.dart';
 import '../../../auth/presentation/pages/auth_page.dart';
 import '../../../bookingpage/presentation/page/booking_page.dart';
-import '../../../bookingpage/presentation/page/trip_summary_page.dart';
 import '../../application/home_bloc.dart';
-import '../../../../common/common.dart';
-import '../../../../core/utils/custom_text.dart';
 import '../../domain/models/stop_address_model.dart';
 import '../../domain/models/user_details_model.dart';
-import '../widgets/home_on_going_rides.dart';
-import '../widgets/home_page_shimmer.dart';
-import '../widgets/send_receive_delivery.dart';
+import '../widgets/leave_instruction.dart';
+import '../widgets/select_contact.dart';
 import 'confirm_location_page.dart';
-import 'destination_page.dart';
-import 'on_going_rides.dart';
 
-class HomePage extends StatefulWidget {
-  static const String routeName = '/homePage';
+class DestinationPage extends StatefulWidget {
+  static const String routeName = '/destinationPage';
+  final DestinationPageArguments arg;
 
-  const HomePage({super.key});
+  const DestinationPage({super.key, required this.arg});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<DestinationPage> createState() => _DestinationPageState();
 }
 
-class _HomePageState extends State<HomePage>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
-  @override
-  void initState() {
-    super.initState();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // && Platform.isAndroid
-    if (state == AppLifecycleState.paused) {
-      if (HomeBloc().nearByVechileSubscription != null) {
-        HomeBloc().nearByVechileSubscription?.pause();
-      }
-    }
-    if (state == AppLifecycleState.resumed) {
-      if (HomeBloc().nearByVechileSubscription != null) {
-        HomeBloc().nearByVechileSubscription?.resume();
-      }
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    WidgetsBinding.instance.addObserver(this);
-    HomeBloc().nearByVechileCheckStream(context, this);
-  }
-
+class _DestinationPageState extends State<DestinationPage> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -79,7 +42,7 @@ class _HomePageState extends State<HomePage>
     return BlocProvider(
       create: (context) => HomeBloc()
         ..add(GetDirectionEvent())
-        ..add(GetUserDetailsEvent()),
+        ..add(DesinationPageInitEvent(arg: widget.arg)),
       child: BlocListener<HomeBloc, HomeState>(
         listener: (context, state) async {
           if (state is HomeInitialState) {
@@ -88,8 +51,6 @@ class _HomePageState extends State<HomePage>
             CustomLoader.loader(context);
           } else if (state is HomeLoadingStopState) {
             CustomLoader.dismiss(context);
-          } else if (state is VechileStreamMarkerState) {
-            context.read<HomeBloc>().nearByVechileCheckStream(context, this);
           } else if (state is LogoutState) {
             if (context.read<HomeBloc>().nearByVechileSubscription != null) {
               context.read<HomeBloc>().nearByVechileSubscription?.cancel();
@@ -98,7 +59,243 @@ class _HomePageState extends State<HomePage>
             Navigator.pushNamedAndRemoveUntil(
                 context, AuthPage.routeName, (route) => false);
             await AppSharedPreference.setLoginStatus(false);
-          } else if (state is GetLocationPermissionState) {
+          } else if (state is SelectFromMapState) {
+            Navigator.pushNamed(context, ConfirmLocationPage.routeName,
+                    arguments: ConfirmLocationPageArguments(
+                        userData: widget.arg.userData,
+                        isPickupEdit: state.isPickUpEdit,
+                        isEditAddress: false,
+                        mapType: widget.arg.mapType,
+                        transportType: context.read<HomeBloc>().transportType))
+                .then(
+              (value) {
+                if (value != null) {
+                  if (!context.mounted) return;
+                  final address = value as AddressModel;
+                  final homeBloc = context.read<HomeBloc>();
+                  if (context.read<HomeBloc>().transportType.toLowerCase() ==
+                      'delivery') {
+                    showModalBottomSheet(
+                      context: context,
+                      isDismissible: true,
+                      enableDrag: false,
+                      isScrollControlled: true,
+                      barrierColor: Theme.of(context).shadowColor,
+                      builder: (_) {
+                        return BlocProvider.value(
+                          value: homeBloc,
+                          child: LeaveInstructions(
+                            address: address,
+                            isReceiveParcel:
+                                widget.arg.title == 'Receive Parcel',
+                            name: widget.arg.userData.name,
+                            number: widget.arg.userData.mobile,
+                            // In New [Start]
+                            transportType: widget.arg.transportType,
+                            // In New [End]
+                          ),
+                        );
+                      },
+                    );
+                  } else {
+                    context.read<HomeBloc>().add(AddOrEditStopAddressEvent(
+                          isPickUpEdit: state.isPickUpEdit,
+                          choosenAddressIndex:
+                              context.read<HomeBloc>().choosenAddressIndex,
+                          newAddress: address,
+                        ));
+                  }
+                }
+              },
+            );
+          } else if (state is RecentSearchPlaceSelectState) {
+            if (context.read<HomeBloc>().transportType.toLowerCase() ==
+                'delivery') {
+              final homeBloc = context.read<HomeBloc>();
+              showModalBottomSheet(
+                context: context,
+                isDismissible: true,
+                enableDrag: true,
+                isScrollControlled: true,
+                barrierColor: Theme.of(context).shadowColor,
+                builder: (_) {
+                  return PopScope(
+                    canPop: false,
+                    child: BlocProvider.value(
+                      value: homeBloc,
+                      child: LeaveInstructions(
+                        address: state.address,
+                        isReceiveParcel: widget.arg.title == 'Receive Parcel',
+                        name: widget.arg.userData.name,
+                        number: widget.arg.userData.mobile,
+                        // In New [Start]
+                        transportType: widget.arg.transportType,
+                        // In New [End]
+                      ),
+                    ),
+                  );
+                },
+              );
+            } else {
+              context.read<HomeBloc>().addressList[
+                  context.read<HomeBloc>().choosenAddressIndex] = state.address;
+              context
+                  .read<HomeBloc>()
+                  .addressTextControllerList[
+                      context.read<HomeBloc>().choosenAddressIndex]
+                  .text = state.address.address;
+              if (!context
+                  .read<HomeBloc>()
+                  .addressList
+                  .any((element) => element.address.isEmpty)) {
+                context.read<HomeBloc>().add(ConfirmRideAddressEvent(
+                    // In New [Start]
+                    rideType:
+                        widget.arg.isOutstationRide ? 'outstation' : 'taxi',
+                    // In New [End]
+                    addressList: context.read<HomeBloc>().addressList));
+              }
+            }
+          } else if (state is AddOrEditAddressState) {
+            if (!context
+                .read<HomeBloc>()
+                .addressList
+                .any((element) => element.address.isEmpty)) {
+              context.read<HomeBloc>().add(ConfirmRideAddressEvent(
+                  // In New [Start]
+                  rideType: widget.arg.isOutstationRide ? 'outstation' : 'taxi',
+                  // In New [End]
+                  addressList: context.read<HomeBloc>().addressList));
+            }
+          } else if (state is ReceiverDetailsState) {
+            final homeBloc = context.read<HomeBloc>();
+            showModalBottomSheet(
+              context: context,
+              isDismissible: true,
+              enableDrag: true,
+              isScrollControlled: true,
+              barrierColor: Theme.of(context).shadowColor,
+              builder: (_) {
+                return BlocProvider.value(
+                  value: homeBloc,
+                  child: LeaveInstructions(
+                      address: state.address,
+                      // In New [Start]
+                      transportType: widget.arg.transportType,
+                      // In New [End]
+                      isReceiveParcel: widget.arg.title == 'Receive Parcel',
+                      name: widget.arg.userData.name,
+                      number: widget.arg.userData.mobile),
+                );
+              },
+            );
+          } else if (state is SelectContactDetailsState) {
+            final homeBloc = context.read<HomeBloc>();
+            context.read<HomeBloc>().isMyself = false;
+            showModalBottomSheet(
+              context: context,
+              isDismissible: true,
+              enableDrag: true,
+              useRootNavigator: true,
+              isScrollControlled: true,
+              builder: (_) {
+                return BlocProvider.value(
+                  value: homeBloc,
+                  child: const SelectFromContactList(),
+                );
+              },
+            );
+          } else if (state is ConfirmRideAddressState) {
+            if (context.read<HomeBloc>().nearByVechileSubscription != null) {
+              context.read<HomeBloc>().nearByVechileSubscription?.cancel();
+              context.read<HomeBloc>().nearByVechileSubscription = null;
+            }
+            Navigator.pushNamed(
+              context,
+              BookingPage.routeName,
+              arguments: BookingPageArguments(
+                  picklat: context
+                      .read<HomeBloc>()
+                      .pickupAddressList
+                      .first
+                      .lat
+                      .toString(),
+                  picklng: context
+                      .read<HomeBloc>()
+                      .pickupAddressList
+                      .first
+                      .lng
+                      .toString(),
+                  droplat: context
+                      .read<HomeBloc>()
+                      .stopAddressList
+                      .last
+                      .lat
+                      .toString(),
+                  droplng: context
+                      .read<HomeBloc>()
+                      .stopAddressList
+                      .last
+                      .lng
+                      .toString(),
+                  userData: widget.arg.userData,
+                  transportType: widget.arg.transportType,
+                  pickupAddressList: context.read<HomeBloc>().pickupAddressList,
+                  stopAddressList: context.read<HomeBloc>().stopAddressList,
+                  title: widget.arg.title,
+                  polyString: '',
+                  distance: '',
+                  duration: '',
+                  isOutstationRide: widget.arg.isOutstationRide,
+                  mapType: widget.arg.mapType),
+            );
+          } else if (state is RecentRouteSelectState) {
+            if (context.read<HomeBloc>().nearByVechileSubscription != null) {
+              context.read<HomeBloc>().nearByVechileSubscription?.cancel();
+              context.read<HomeBloc>().nearByVechileSubscription = null;
+            }
+            Navigator.pushNamed(
+              context,
+              BookingPage.routeName,
+              arguments: BookingPageArguments(
+                  picklat: context
+                      .read<HomeBloc>()
+                      .pickupAddressList
+                      .first
+                      .lat
+                      .toString(),
+                  picklng: context
+                      .read<HomeBloc>()
+                      .pickupAddressList
+                      .first
+                      .lng
+                      .toString(),
+                  droplat: context
+                      .read<HomeBloc>()
+                      .stopAddressList
+                      .last
+                      .lat
+                      .toString(),
+                  droplng: context
+                      .read<HomeBloc>()
+                      .stopAddressList
+                      .last
+                      .lng
+                      .toString(),
+                  userData: widget.arg.userData,
+                  transportType: widget.arg.transportType,
+                  pickupAddressList: context.read<HomeBloc>().pickupAddressList,
+                  stopAddressList: context.read<HomeBloc>().stopAddressList,
+                  title: widget.arg.title,
+                  polyString: state.selectedRoute.polyLine,
+                  distance: state.selectedRoute.totalDistance.toString(),
+                  duration: state.selectedRoute.totalTime.toString(),
+                  isOutstationRide: widget.arg.isOutstationRide,
+                  mapType: widget.arg.mapType),
+            );
+          }
+          // In New [Start]
+          else if (state is ServiceNotAvailableState) {
             showDialog(
               context: context,
               builder: (_) {
@@ -117,400 +314,198 @@ class _HomePageState extends State<HomePage>
                               },
                               child: Icon(Icons.cancel_outlined,
                                   color: Theme.of(context).primaryColor))),
-                      MyText(
-                          text: AppLocalizations.of(context)!.locationAccess,
-                          maxLines: 4),
+                      Center(
+                        child: MyText(
+                            text: state.message,
+                            // AppLocalizations.of(context)!.serviceNotAvailable,
+                            maxLines: 4),
+                      ),
                     ],
                   ),
                   actions: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        InkWell(
-                          onTap: () async {
-                            await openAppSettings();
-                          },
-                          child: MyText(
-                              text: AppLocalizations.of(context)!.openSetting,
-                              textStyle: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium!
-                                  .copyWith(
-                                      color: Theme.of(context).primaryColor)),
-                        ),
-                        InkWell(
-                          onTap: () async {
-                            PermissionStatus status =
-                                await Permission.location.status;
-                            if (status.isGranted || status.isLimited) {
-                              if (!context.mounted) return;
-                              Navigator.pop(context);
-                              context.read<HomeBloc>().add(LocateMeEvent(
-                                  mapType: context.read<HomeBloc>().mapType));
-                            } else {
-                              if (!context.mounted) return;
-                              Navigator.pop(context);
-                            }
-                          },
-                          child: MyText(
-                              text: AppLocalizations.of(context)!.done,
-                              textStyle: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium!
-                                  .copyWith(
-                                      color: Theme.of(context).primaryColor)),
-                        ),
-                      ],
+                    Center(
+                      child: CustomButton(
+                        buttonName: AppLocalizations.of(context)!.okText,
+                        onTap: () {
+                          Navigator.pop(context);
+                        },
+                      ),
                     )
                   ],
                 );
               },
             );
-          } else if (state is NavigateToOnGoingRidesPageState) {
-            Navigator.pushNamed(context, OnGoingRidesPage.routeName,
-                    arguments: OnGoingRidesPageArguments(
-                        userData: context.read<HomeBloc>().userData!,
-                        mapType: context.read<HomeBloc>().mapType))
-                .then(
-              (value) {
-                if (!context.mounted) return;
-                context.read<HomeBloc>().add(GetUserDetailsEvent());
-              },
-            );
-          } else if (state is UserOnTripState &&
-              state.tripData.acceptedAt == '') {
-            if (context.read<HomeBloc>().nearByVechileSubscription != null) {
-              context.read<HomeBloc>().nearByVechileSubscription?.cancel();
-              context.read<HomeBloc>().nearByVechileSubscription = null;
-            }
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              BookingPage.routeName,
-              (route) => false,
-              arguments: BookingPageArguments(
-                  picklat: state.tripData.pickLat,
-                  picklng: state.tripData.pickLng,
-                  droplat: state.tripData.dropLat,
-                  droplng: state.tripData.dropLng,
-                  pickupAddressList: context.read<HomeBloc>().pickupAddressList,
-                  stopAddressList: context.read<HomeBloc>().stopAddressList,
-                  userData: context.read<HomeBloc>().userData!,
-                  transportType: state.tripData.transportType,
-                  polyString: state.tripData.polyLine,
-                  distance: (double.parse(state.tripData.totalDistance) * 1000)
-                      .toString(),
-                  duration: state.tripData.totalTime.toString(),
-                  isRentalRide: state.tripData.isRental,
-                  isWithoutDestinationRide: ((state.tripData.dropLat.isEmpty &&
-                              state.tripData.dropLng.isEmpty) &&
-                          !state.tripData.isRental)
-                      ? true
-                      : false,
-                  isOutstationRide: state.tripData.isOutStation == "1",
-                  mapType: context.read<HomeBloc>().mapType),
-            );
-          } else if (state is DeliverySelectState) {
-            final homeBloc = context.read<HomeBloc>();
-            showModalBottomSheet(
-              context: context,
-              isDismissible: true,
-              enableDrag: false,
-              isScrollControlled: true,
-              builder: (_) {
-                return BlocProvider.value(
-                  value: homeBloc,
-                  child: const SendOrReceiveDelivery(),
-                );
-              },
-            );
-          } else if (state is DestinationSelectState) {
-            Navigator.pushNamed(
-              context,
-              DestinationPage.routeName,
-              arguments: DestinationPageArguments(
-                  title: context.read<HomeBloc>().selectedServiceType == 0
-                      ? 'Taxi'
-                      : 'Delivery',
-                  pickupAddress: context.read<HomeBloc>().currentLocation,
-                  pickupLatLng: context.read<HomeBloc>().currentLatLng,
-                  dropAddress: state.dropAddress,
-                  dropLatLng: state.dropLatLng,
-                  userData: context.read<HomeBloc>().userData!,
-                  pickUpChange: state.isPickupChange,
-                  transportType:
-                      context.read<HomeBloc>().selectedServiceType == 0
-                          ? 'taxi'
-                          : 'delivery',
-                  isOutstationRide: false,
-                  mapType: context.read<HomeBloc>().mapType),
-            );
-          } else if (state is OutStationSelectState) {
-            Navigator.pushNamed(
-              context,
-              DestinationPage.routeName,
-              arguments: DestinationPageArguments(
-                  title: context.read<HomeBloc>().selectedServiceType == 0
-                      ? 'Taxi'
-                      : 'Delivery',
-                  pickupAddress: context.read<HomeBloc>().currentLocation,
-                  pickupLatLng: context.read<HomeBloc>().currentLatLng,
-                  userData: context.read<HomeBloc>().userData!,
-                  pickUpChange: false,
-                  transportType:
-                      context.read<HomeBloc>().selectedServiceType == 0
-                          ? 'taxi'
-                          : 'delivery',
-                  isOutstationRide: true,
-                  mapType: context.read<HomeBloc>().mapType),
-            );
-          } else if (state is RecentSearchPlaceSelectState) {
-            if (context.read<HomeBloc>().nearByVechileSubscription != null) {
-              context.read<HomeBloc>().nearByVechileSubscription?.cancel();
-              context.read<HomeBloc>().nearByVechileSubscription = null;
-            }
-            if (context.read<HomeBloc>().pickupAddressList.isNotEmpty &&
-                context.read<HomeBloc>().stopAddressList.length == 1) {
-              Navigator.pushNamed(
-                context,
-                BookingPage.routeName,
-                arguments: BookingPageArguments(
-                    picklat: context
-                        .read<HomeBloc>()
-                        .pickupAddressList
-                        .first
-                        .lat
-                        .toString(),
-                    picklng: context
-                        .read<HomeBloc>()
-                        .pickupAddressList
-                        .first
-                        .lng
-                        .toString(),
-                    droplat: context
-                        .read<HomeBloc>()
-                        .stopAddressList
-                        .last
-                        .lat
-                        .toString(),
-                    droplng: context
-                        .read<HomeBloc>()
-                        .stopAddressList
-                        .last
-                        .lng
-                        .toString(),
-                    userData: context.read<HomeBloc>().userData!,
-                    transportType:
-                        context.read<HomeBloc>().selectedServiceType == 0
-                            ? 'taxi'
-                            : 'delivery',
-                    pickupAddressList:
-                        context.read<HomeBloc>().pickupAddressList,
-                    stopAddressList: context.read<HomeBloc>().stopAddressList,
-                    polyString: '',
-                    distance: '',
-                    duration: '',
-                    isOutstationRide: false,
-                    mapType: context.read<HomeBloc>().mapType),
-              );
-            } else {
-              context.read<HomeBloc>().stopAddressList.clear();
-            }
-          } else if (state is RentalSelectState) {
-            Navigator.pushNamed(context, ConfirmLocationPage.routeName,
-                    arguments: ConfirmLocationPageArguments(
-                        userData: context.read<HomeBloc>().userData!,
-                        isPickupEdit: true,
-                        isEditAddress: false,
-                        mapType: context.read<HomeBloc>().mapType,
-                        transportType: ''))
-                .then(
-              (value) {
-                if (!context.mounted) return;
-                if (value != null) {
-                  if (context.read<HomeBloc>().nearByVechileSubscription !=
-                      null) {
-                    context
-                        .read<HomeBloc>()
-                        .nearByVechileSubscription
-                        ?.cancel();
-                    context.read<HomeBloc>().nearByVechileSubscription = null;
-                  }
-                  context.read<HomeBloc>().pickupAddressList.clear();
-                  final add = value as AddressModel;
-                  context.read<HomeBloc>().pickupAddressList.add(add);
-                  Navigator.pushNamed(
-                    context,
-                    BookingPage.routeName,
-                    arguments: BookingPageArguments(
-                        picklat: context
-                            .read<HomeBloc>()
-                            .pickupAddressList[0]
-                            .lat
-                            .toString(),
-                        picklng: context
-                            .read<HomeBloc>()
-                            .pickupAddressList[0]
-                            .lng
-                            .toString(),
-                        droplat: '',
-                        droplng: '',
-                        userData: context.read<HomeBloc>().userData!,
-                        transportType: '',
-                        pickupAddressList:
-                            context.read<HomeBloc>().pickupAddressList,
-                        stopAddressList: [],
-                        polyString: '',
-                        distance: '',
-                        duration: '',
-                        mapType: context.read<HomeBloc>().mapType,
-                        isOutstationRide: false,
-                        isRentalRide: true),
-                  );
-                }
-              },
-            );
-          } else if (state is RideWithoutDestinationState) {
-            Navigator.pushNamed(context, ConfirmLocationPage.routeName,
-                    arguments: ConfirmLocationPageArguments(
-                        userData: context.read<HomeBloc>().userData!,
-                        isPickupEdit: true,
-                        isEditAddress: false,
-                        mapType: context.read<HomeBloc>().mapType,
-                        transportType: ''))
-                .then(
-              (value) {
-                if (!context.mounted) return;
-                if (value != null) {
-                  if (context.read<HomeBloc>().nearByVechileSubscription !=
-                      null) {
-                    context
-                        .read<HomeBloc>()
-                        .nearByVechileSubscription
-                        ?.cancel();
-                    context.read<HomeBloc>().nearByVechileSubscription = null;
-                  }
-                  context.read<HomeBloc>().pickupAddressList.clear();
-                  final add = value as AddressModel;
-                  context.read<HomeBloc>().pickupAddressList.add(add);
-                  Navigator.pushNamed(
-                    context,
-                    BookingPage.routeName,
-                    arguments: BookingPageArguments(
-                        picklat: context
-                            .read<HomeBloc>()
-                            .pickupAddressList[0]
-                            .lat
-                            .toString(),
-                        picklng: context
-                            .read<HomeBloc>()
-                            .pickupAddressList[0]
-                            .lng
-                            .toString(),
-                        droplat: '',
-                        droplng: '',
-                        userData: context.read<HomeBloc>().userData!,
-                        transportType: 'taxi',
-                        pickupAddressList:
-                            context.read<HomeBloc>().pickupAddressList,
-                        stopAddressList: [],
-                        polyString: '',
-                        distance: '',
-                        duration: '',
-                        mapType: context.read<HomeBloc>().mapType,
-                        isRentalRide: false,
-                        isOutstationRide: false,
-                        isWithoutDestinationRide: true),
-                  );
-                }
-              },
-            );
-          } else if (state is UserOnTripState) {
-            if (context.read<HomeBloc>().nearByVechileSubscription != null) {
-              context.read<HomeBloc>().nearByVechileSubscription?.cancel();
-              context.read<HomeBloc>().nearByVechileSubscription = null;
-            }
-            Navigator.pushNamedAndRemoveUntil(
-                context, BookingPage.routeName, (route) => false,
-                arguments: BookingPageArguments(
-                    picklat: state.tripData.pickLat,
-                    picklng: state.tripData.pickLng,
-                    droplat: state.tripData.dropLat,
-                    droplng: state.tripData.dropLng,
-                    pickupAddressList:
-                        context.read<HomeBloc>().pickupAddressList,
-                    stopAddressList: context.read<HomeBloc>().stopAddressList,
-                    userData: context.read<HomeBloc>().userData!,
-                    transportType: state.tripData.transportType,
-                    polyString: state.tripData.polyLine,
-                    distance: state.tripData.totalDistance,
-                    duration: state.tripData.totalTime.toString(),
-                    requestId: state.tripData.id,
-                    mapType: context.read<HomeBloc>().mapType,
-                    isOutstationRide: state.tripData.isOutStation == "1"));
-          } else if (state is UserTripSummaryState) {
-            if (context.read<HomeBloc>().nearByVechileSubscription != null) {
-              context.read<HomeBloc>().nearByVechileSubscription?.cancel();
-              context.read<HomeBloc>().nearByVechileSubscription = null;
-            }
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              TripSummaryPage.routeName,
-              (route) => false,
-              arguments: TripSummaryPageArguments(
-                  requestData: state.requestData,
-                  requestBillData: state.requestBillData,
-                  driverData: state.driverData),
-            );
           }
+          // In New [End]
         },
         child: BlocBuilder<HomeBloc, HomeState>(
           builder: (context, state) {
-            if (context.read<HomeBloc>().mapType == 'google_map') {
-              if (Theme.of(context).brightness == Brightness.dark) {
-                if (context.read<HomeBloc>().googleMapController != null) {
-                  if (context.mounted) {
-                    context
-                        .read<HomeBloc>()
-                        .googleMapController!
-                        .setMapStyle(context.read<HomeBloc>().darkMapString);
-                  }
-                }
-              } else {
-                if (context.read<HomeBloc>().googleMapController != null) {
-                  if (context.mounted) {
-                    context
-                        .read<HomeBloc>()
-                        .googleMapController!
-                        .setMapStyle(context.read<HomeBloc>().lightMapString);
-                  }
-                }
-              }
-            }
-
-            return PopScope(
-              canPop: true,
-              child: Directionality(
-                textDirection: context.read<HomeBloc>().textDirection == 'rtl'
-                    ? TextDirection.rtl
-                    : TextDirection.ltr,
-                child: Scaffold(
-                  body: (context.read<HomeBloc>().userData != null &&
-                          ((context.read<HomeBloc>().userData!.onTripRequest ==
-                                      null ||
+            return Directionality(
+              textDirection: context.read<HomeBloc>().textDirection == 'rtl'
+                  ? TextDirection.rtl
+                  : TextDirection.ltr,
+              child: GestureDetector(
+                onTap: () {
+                  FocusScope.of(context).requestFocus(FocusNode());
+                },
+                child: SafeArea(
+                  child: Scaffold(
+                    appBar: AppBar(
+                      automaticallyImplyLeading: false,
+                      leadingWidth: size.width * 0.2,
+                      surfaceTintColor:
+                          Theme.of(context).scaffoldBackgroundColor,
+                      leading: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 3),
+                        child: NavigationIconWidget(
+                          onTap: () {
+                            Navigator.pop(context);
+                          },
+                          icon: Icon(Icons.arrow_back_ios_new_rounded,
+                              size: 18,
+                              color: Theme.of(context).primaryColorDark),
+                          isShadowWidget: true,
+                        ),
+                      ),
+                      actions: [
+                        (context.read<HomeBloc>().addressList.length < 4 &&
+                                !widget.arg.isOutstationRide)
+                            ? Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: InkWell(
+                                  onTap: () {
+                                    context
+                                        .read<HomeBloc>()
+                                        .add(AddStopEvent());
+                                  },
+                                  // child: Icon(
+                                  //   Icons.add_outlined,
+                                  //   color: Theme.of(context).primaryColor,
+                                  // ),
+                                  child: MyText(
+                                      text:
+                                          AppLocalizations.of(context)!.addStop,
+                                      textStyle: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium!
+                                          .copyWith(
+                                              color: Theme.of(context)
+                                                  .primaryColorDark,
+                                              fontWeight: FontWeight.w600)),
+                                ),
+                              )
+                            : const SizedBox(width: 1)
+                      ],
+                      bottom: PreferredSize(
+                        preferredSize: Size(
+                            size.width,
+                            (context.read<HomeBloc>().addressList.length == 2)
+                                ? size.width * 0.3
+                                : (context
+                                            .read<HomeBloc>()
+                                            .addressList
+                                            .length ==
+                                        3)
+                                    ? size.width * 0.4
+                                    : size.width * 0.55),
+                        child: buildLocationSelect(context, size),
+                      ),
+                    ),
+                    body: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (context
+                              .read<HomeBloc>()
+                              .searchInfoMessage
+                              .isEmpty) ...[
+                            SizedBox(height: size.width * 0.03),
+                            if (context.read<HomeBloc>().userData != null)
+                              buildFavoriteLocations(
+                                  context,
                                   context
-                                          .read<HomeBloc>()
-                                          .userData!
-                                          .onTripRequest ==
-                                      "") ||
-                              (context.read<HomeBloc>().userData!.metaRequest ==
-                                      null ||
-                                  context
-                                          .read<HomeBloc>()
-                                          .userData!
-                                          .metaRequest ==
-                                      "")))
-                      ? bodyMapBuilder(context, size)
-                      : HomePageShimmer(size: size),
+                                      .read<HomeBloc>()
+                                      .userData!
+                                      .favouriteLocations
+                                      .data,
+                                  size),
+                            SizedBox(height: size.width * 0.03),
+                            if (context
+                                .read<HomeBloc>()
+                                .recentSearchPlaces
+                                .isNotEmpty) ...[
+                              if (context
+                                      .read<HomeBloc>()
+                                      .recentRoutes
+                                      .isNotEmpty &&
+                                  context.read<HomeBloc>().recentRoutes.any(
+                                      (element) =>
+                                          element.transportType ==
+                                          widget.arg.transportType))
+                                buildRecentRoutes(context, size),
+                              SizedBox(height: size.width * 0.02),
+                              buildRecentSearchLocations(context, size)
+                            ],
+                          ],
+                          if (context
+                              .read<HomeBloc>()
+                              .searchInfoMessage
+                              .isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 16, top: 16),
+                              child: MyText(
+                                  text: context
+                                      .read<HomeBloc>()
+                                      .searchInfoMessage),
+                            ),
+                          if (context
+                              .read<HomeBloc>()
+                              .autoSearchPlaces
+                              .isNotEmpty) ...[
+                            SizedBox(height: size.width * 0.03),
+                            autoSearchPlacesWidget(context, size)
+                          ]
+                        ],
+                      ),
+                    ),
+                    bottomSheet: buildSelectFromMap(size, context),
+                    bottomNavigationBar: (!context
+                            .read<HomeBloc>()
+                            .addressList
+                            .any((element) => element.address.isEmpty))
+                        ? Padding(
+                            padding: EdgeInsets.fromLTRB(8, 8, 8,
+                                MediaQuery.of(context).viewInsets.bottom + 8),
+                            child: CustomButton(
+                              buttonName: AppLocalizations.of(context)!.done,
+                              buttonColor: context
+                                      .read<HomeBloc>()
+                                      .addressList
+                                      .any((element) => element.address.isEmpty)
+                                  ? Theme.of(context)
+                                      .primaryColor
+                                      .withOpacity(0.2) // TODO: Use alpha value
+                                  : Theme.of(context).primaryColor,
+                              onTap: () {
+                                if (!context.read<HomeBloc>().addressList.any(
+                                    (element) => element.address.isEmpty)) {
+                                  context.read<HomeBloc>().add(
+                                      ConfirmRideAddressEvent(
+                                          // In New [Start]
+                                          rideType: widget.arg.isOutstationRide
+                                              ? 'outstation'
+                                              : 'taxi',
+                                          // In New [End]
+                                          addressList: context
+                                              .read<HomeBloc>()
+                                              .addressList));
+                                }
+                              },
+                            ))
+                        : null,
+                  ),
                 ),
               ),
             );
@@ -520,1330 +515,991 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  Widget bottomSheetBuilder(Size size, BuildContext context) {
-    return BlocProvider.value(
-        value: context.read<HomeBloc>(),
-        child: Container(
-          height: size.height,
-          margin: const EdgeInsets.only(top: 1),
-          decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(30), topRight: Radius.circular(30)),
-            boxShadow: [
-              BoxShadow(
-                  blurRadius: 5,
-                  spreadRadius: 1,
-                  color: Theme.of(context).shadowColor)
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(height: size.width * 0.03),
-              Center(
-                  child: CustomDivider(
-                      height: 5,
-                      width: size.width * 0.2,
-                      color: Theme.of(context).dividerColor.withOpacity(0.4))),
-              SizedBox(height: size.width * 0.02),
-              recentSearchPlaces(size, context),
-              SizedBox(height: size.width * 0.025),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (context.read<HomeBloc>().isMultipleRide) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            MyText(
-                                text:
-                                    AppLocalizations.of(context)!.onGoingRides,
-                                textStyle: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium!
-                                    .copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: Theme.of(context)
-                                            .primaryColorDark)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: size.width * 0.01),
-                    onGoingRides(context, size),
-                  ],
-                  if (context.read<HomeBloc>().userData != null &&
-                      ((context
-                                  .read<HomeBloc>()
-                                  .userData!
-                                  .enableModulesForApplications ==
-                              'both') ||
-                          (context
-                                      .read<HomeBloc>()
-                                      .userData!
-                                      .enableModulesForApplications ==
-                                  'taxi' &&
-                              context
-                                  .read<HomeBloc>()
-                                  .userData!
-                                  .showRentalRide) ||
-                          (context
-                                      .read<HomeBloc>()
-                                      .userData!
-                                      .enableModulesForApplications ==
-                                  'delivery' &&
-                              context
-                                  .read<HomeBloc>()
-                                  .userData!
-                                  .showRentalRide)))
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: servicesWidget(context, size),
-                    ),
-                  if (context.read<HomeBloc>().userData != null &&
-                      context
-                          .read<HomeBloc>()
-                          .userData!
-                          .bannerImage
-                          .data
-                          .isNotEmpty) ...[
-                    SizedBox(height: size.width * 0.025),
-                    bannerWidget(context, size),
-                  ],
-                ],
-              ),
-              SizedBox(height: size.width * 0.1),
-              Expanded(
-                  child: Container(
-                decoration: const BoxDecoration(
-                  image: DecorationImage(
-                    image: AssetImage(AppImages.bottomBackground),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ))
-            ],
-          ),
-        ));
-  }
-
-  Widget recentSearchPlaces(Size size, BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: BlocBuilder<HomeBloc, HomeState>(
-        builder: (context, state) {
-          // Access the current sheetSize directly from HomeBloc
-          double sheetSize = context.read<HomeBloc>().sheetSize;
-          double maxSheetSize = context.read<HomeBloc>().maxChildSize;
-          double recentSearchWidth =
-              sheetSize == maxSheetSize ? size.width * 0.9 : size.width * 0.9;
-          return Container(
-            width: size.width,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-            ),
+  Widget autoSearchPlacesWidget(BuildContext context, Size size) {
+    return GestureDetector(
+      onTap: () {
+        FocusScope.of(context).requestFocus(FocusNode());
+      },
+      child: SizedBox(
+        child: GestureDetector(
+          onVerticalDragStart: (details) {
+            FocusScope.of(context).requestFocus(FocusNode());
+          },
+          child: SingleChildScrollView(
             child: Padding(
-              padding: EdgeInsets.only(
-                  right: size.width * 0.020,
-                  left: size.width * 0,
-                  top: size.width * 0.020,
-                  bottom: size.width * 0.020),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
                 children: [
-                  Row(
-                    children: [
-                      SizedBox(width: size.width * 0.02),
-                      if (context.read<HomeBloc>().isSheetAtTop)
-                        Flexible(
-                          child: NavigationIconWidget(
-                            icon: InkWell(
-                              onTap: () {
-                                Navigator.pushNamed(
-                                        context, AccountPage.routeName,
-                                        arguments: AccountPageArguments(
-                                            userData: context
-                                                .read<HomeBloc>()
-                                                .userData!))
-                                    .then((value) {
-                                  if (!context.mounted) return;
-                                  context
-                                      .read<HomeBloc>()
-                                      .add(GetDirectionEvent());
-                                  if (value != null) {
-                                    context.read<HomeBloc>().userData =
-                                        value as UserDetail;
-                                    context.read<HomeBloc>().add(UpdateEvent());
-                                  }
-                                });
-                              },
+                  ListView.separated(
+                    itemCount: context.read<HomeBloc>().autoSearchPlaces.length,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: EdgeInsets.zero,
+                    itemBuilder: (context, index) {
+                      final autoAddres = context
+                          .read<HomeBloc>()
+                          .autoSearchPlaces
+                          .elementAt(index);
+                      return InkWell(
+                        onTap: () {
+                          FocusScope.of(context).requestFocus(FocusNode());
+                          context.read<HomeBloc>().add(
+                              RecentSearchPlaceSelectEvent(
+                                  transportType: widget.arg.transportType,
+                                  address: autoAddres,
+                                  isPickupSelect:
+                                      context.read<HomeBloc>().isPickupSelect));
+                        },
+                        child: Row(
+                          children: [
+                            Container(
+                              height: size.height * 0.075,
+                              width: size.width * 0.075,
+                              decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .disabledColor
+                                      .withOpacity(
+                                          0.25), //TODO: Use alpha value
+                                  shape: BoxShape.circle),
+                              alignment: Alignment.center,
                               child: Icon(
-                                Icons.menu,
+                                Icons.location_pin,
                                 size: 20,
-                                color: Theme.of(context).primaryColorDark,
-                              ),
-                            ),
-                            isShadowWidget: true,
-                          ),
-                        ),
-                      if (context.read<HomeBloc>().isSheetAtTop)
-                        SizedBox(width: size.width * 0.02),
-                      Flexible(
-                        flex: context
-                            .read<HomeBloc>()
-                            .calculateResponsiveFlex(size.width),
-                        child: InkWell(
-                          onTap: () {
-                            if (context
-                                        .read<HomeBloc>()
-                                        .userData!
-                                        .enableModulesForApplications ==
-                                    'both' ||
-                                context
-                                        .read<HomeBloc>()
-                                        .userData!
-                                        .enableModulesForApplications ==
-                                    'taxi') {
-                              context.read<HomeBloc>().add(
-                                  DestinationSelectEvent(
-                                      isPickupChange: false));
-                            } else {
-                              context.read<HomeBloc>().add(
-                                  ServiceTypeChangeEvent(serviceTypeIndex: 1));
-                            }
-                          },
-                          child: AnimatedContainer(
-                            transformAlignment: Alignment.centerRight,
-                            duration: const Duration(milliseconds: 100),
-                            width: recentSearchWidth,
-                            padding: EdgeInsets.all(size.width * 0.02),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).scaffoldBackgroundColor,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
                                 color: Theme.of(context)
                                     .disabledColor
-                                    .withOpacity(0.5),
+                                    .withOpacity(0.75),
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Theme.of(context).shadowColor,
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 5),
-                                  spreadRadius: 1,
-                                ),
-                              ],
                             ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: size.width * 0.075,
-                                  height: size.width * 0.075,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Theme.of(context)
-                                        .disabledColor
-                                        .withOpacity(0.3),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Icon(
-                                    Icons.search,
-                                    size: 20,
-                                    color: Theme.of(context)
-                                        .scaffoldBackgroundColor,
-                                  ),
-                                ),
-                                SizedBox(width: size.width * 0.02),
-                                Expanded(
-                                  // Place Expanded inside Row to prevent overflow here
-                                  child: MyText(
-                                    text: AppLocalizations.of(context)!
-                                        .whereAreYouGoing,
-                                    textStyle: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium!
-                                        .copyWith(
-                                          color: Theme.of(context)
-                                              .disabledColor
-                                              .withOpacity(0.5),
-                                        ),
-                                  ),
-                                ),
-                                if (context.read<HomeBloc>().userData != null &&
-                                    (context
-                                            .read<HomeBloc>()
-                                            .userData!
-                                            .showRideWithoutDestination ==
-                                        "1") &&
-                                    (context
-                                                .read<HomeBloc>()
-                                                .userData!
-                                                .enableModulesForApplications ==
-                                            'taxi' ||
-                                        context
-                                                .read<HomeBloc>()
-                                                .userData!
-                                                .enableModulesForApplications ==
-                                            'both'))
-                                  InkWell(
-                                    onTap: () {
-                                      context
-                                          .read<HomeBloc>()
-                                          .add(RideWithoutDestinationEvent());
-                                    },
-                                    child: Container(
-                                      // width: size.width * 0.075,
-                                      height: size.width * 0.075,
-                                      alignment: Alignment.center,
-                                      child: MyText(
-                                        text:
-                                            AppLocalizations.of(context)!.skip,
-                                        textStyle: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium!
-                                            .copyWith(
-                                              color: Theme.of(context)
-                                                  .disabledColor
-                                                  .withOpacity(0.5),
-                                            ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (context
-                      .read<HomeBloc>()
-                      .recentSearchPlaces
-                      .isNotEmpty) ...[
-                    SizedBox(height: size.width * 0.02),
-                    ListView.builder(
-                      itemCount:
-                          context.read<HomeBloc>().recentSearchPlaces.length > 2
-                              ? 2
-                              : context
-                                  .read<HomeBloc>()
-                                  .recentSearchPlaces
-                                  .length,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: EdgeInsets.zero,
-                      itemBuilder: (context, index) {
-                        final recentPlace = context
-                            .read<HomeBloc>()
-                            .recentSearchPlaces
-                            .reversed
-                            .elementAt(index);
-                        return InkWell(
-                          onTap: () {
-                            if (context
-                                .read<HomeBloc>()
-                                .pickupAddressList
-                                .isNotEmpty) {
-                              if (context
-                                          .read<HomeBloc>()
-                                          .userData!
-                                          .enableModulesForApplications ==
-                                      'both' ||
-                                  context
-                                          .read<HomeBloc>()
-                                          .userData!
-                                          .enableModulesForApplications ==
-                                      'taxi') {
-                                context.read<HomeBloc>().add(
-                                    RecentSearchPlaceSelectEvent(
-                                        address: recentPlace,
-                                        isPickupSelect: false,
-                                        transportType: 'taxi'));
-                              } else {
-                                context.read<HomeBloc>().add(
-                                    ServiceTypeChangeEvent(
-                                        serviceTypeIndex: 1));
-                              }
-                            }
-                          },
-                          child: Row(
-                            children: [
-                              Container(
-                                height: size.height * 0.075,
-                                width: size.width * 0.075,
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .disabledColor
-                                      .withOpacity(0.1),
-                                  shape: BoxShape.circle,
-                                ),
-                                alignment: Alignment.center,
-                                child: Icon(
-                                  Icons.history,
-                                  size: 18,
-                                  color: Theme.of(context)
-                                      .disabledColor
-                                      .withOpacity(0.75),
-                                ),
-                              ),
-                              SizedBox(width: size.width * 0.025),
-                              SizedBox(
-                                width: size.width * 0.63,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    MyText(
-                                      text: recentPlace.address.split(',')[0],
+                            SizedBox(width: size.width * 0.025),
+                            SizedBox(
+                              width: size.width * 0.8,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  MyText(
+                                      text: autoAddres.address,
                                       textStyle: Theme.of(context)
                                           .textTheme
                                           .bodyMedium!
                                           .copyWith(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                      maxLines: 1,
-                                    ),
-                                    MyText(
-                                      text: recentPlace.address,
-                                      textStyle: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall!
-                                          .copyWith(
-                                            color:
-                                                Theme.of(context).disabledColor,
-                                          ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
+                                              color: Theme.of(context)
+                                                  .disabledColor),
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis),
+                                ],
                               ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                            )
+                          ],
+                        ),
+                      );
+                    },
+                    separatorBuilder: (context, index) {
+                      return Divider(color: Theme.of(context).dividerColor);
+                    },
+                  ),
+                  SizedBox(height: size.width * 0.15),
                 ],
               ),
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
 
-  Widget bodyMapBuilder(BuildContext context, Size size) {
-    final screenWidth = size.width;
-    return BlocBuilder<HomeBloc, HomeState>(
-      builder: (context, state) {
-        return Stack(
+  Widget buildLocationSelect(BuildContext context, Size size) {
+    return Container(
+      decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          boxShadow: [
+            BoxShadow(
+                color: Theme.of(context).shadowColor,
+                offset: const Offset(0, 5),
+                blurRadius: 5,
+                spreadRadius: 1)
+          ]),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // The map and other widgets
-            SizedBox(
-              height: size.height,
-              width: size.width,
-              child: Column(
-                children: [
-                  Stack(
-                    children: [
-                      (context.read<HomeBloc>().mapType == 'google_map')
-                          // GOOGLE MAP
-                          ? SizedBox(
-                              height: size.height,
-                              width: size.width,
-                              child: GoogleMap(
-                                gestureRecognizers: {
-                                  Factory<OneSequenceGestureRecognizer>(
-                                    () => EagerGestureRecognizer(),
-                                  ),
-                                },
-                                onMapCreated: (GoogleMapController controller) {
-                                  if (context
-                                          .read<HomeBloc>()
-                                          .googleMapController ==
-                                      null) {
-                                    context.read<HomeBloc>().add(
-                                        GoogleControllAssignEvent(
-                                            controller: controller,
-                                            isFromHomePage: true,
-                                            isEditAddress: false,
-                                            latlng: context
-                                                .read<HomeBloc>()
-                                                .currentLatLng));
-                                  } else {
-                                    context.read<HomeBloc>().add(LocateMeEvent(
-                                        mapType:
-                                            context.read<HomeBloc>().mapType));
-                                  }
-                                },
-                                padding: EdgeInsets.only(
-                                    bottom: screenWidth + size.width * 0.01),
-                                initialCameraPosition: CameraPosition(
-                                  target:
-                                      context.read<HomeBloc>().currentLatLng,
-                                  zoom: 15.0,
-                                ),
-                                onTap: (argument) {
-                                  context.read<HomeBloc>().currentLatLng =
-                                      argument;
-                                  if (context
-                                          .read<HomeBloc>()
-                                          .googleMapController !=
-                                      null) {
+            if (context.read<HomeBloc>().addressList.isNotEmpty) ...[
+              Theme(
+                data: Theme.of(context).copyWith(
+                  canvasColor: Colors.white,
+                  shadowColor: Colors.transparent,
+                ),
+                child: ReorderableListView(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  clipBehavior: Clip.antiAlias,
+                  onReorder: (oldIndex, newIndex) {
+                    context.read<HomeBloc>().add(
+                        ReorderEvent(oldIndex: oldIndex, newIndex: newIndex));
+                  },
+                  children: List.generate(
+                    context.read<HomeBloc>().addressList.length,
+                    (index) {
+                      TextEditingController controller = context
+                          .read<HomeBloc>()
+                          .addressTextControllerList
+                          .elementAt(index);
+                      return Padding(
+                        key: Key('$index'),
+                        padding: EdgeInsets.only(bottom: size.width * 0.02),
+                        child: Row(
+                          children: [
+                            if (index != 0 &&
+                                index !=
                                     context
-                                        .read<HomeBloc>()
-                                        .googleMapController!
-                                        .animateCamera(
-                                            CameraUpdate.newCameraPosition(
-                                                CameraPosition(
-                                                    target: argument,
-                                                    zoom: 15)));
-                                  }
-                                },
-                                onCameraMoveStarted: () {
-                                  context
-                                      .read<HomeBloc>()
-                                      .isCameraMoveComplete = true;
-                                },
-                                onCameraMove: (CameraPosition? position) {
-                                  if (position != null) {
-                                    if (!context.mounted) return;
-                                    context.read<HomeBloc>().currentLatLng =
-                                        position.target;
-                                  }
-                                },
-                                onCameraIdle: () {
-                                  if (context
-                                      .read<HomeBloc>()
-                                      .isCameraMoveComplete) {
-                                    if (context
-                                        .read<HomeBloc>()
-                                        .pickupAddressList
-                                        .isEmpty) {
-                                      context.read<HomeBloc>().add(
-                                          UpdateLocationEvent(
-                                              isFromHomePage: true,
-                                              latLng: context
-                                                  .read<HomeBloc>()
-                                                  .currentLatLng,
-                                              mapType: context
-                                                  .read<HomeBloc>()
-                                                  .mapType));
-                                    } else {
-                                      context
-                                          .read<HomeBloc>()
-                                          .confirmPinAddress = true;
-                                      context
-                                          .read<HomeBloc>()
-                                          .add(UpdateEvent());
-                                    }
-                                  }
-                                },
-                                markers: context
-                                        .read<HomeBloc>()
-                                        .markerList
-                                        .isNotEmpty
-                                    ? Set.from(
-                                        context.read<HomeBloc>().markerList)
-                                    : {},
-                                minMaxZoomPreference:
-                                    const MinMaxZoomPreference(13, 20),
-                                buildingsEnabled: false,
-                                zoomControlsEnabled: false,
-                                compassEnabled: false,
-                                mapToolbarEnabled: false,
-                                myLocationEnabled: true,
-                                myLocationButtonEnabled: false,
-                              ),
-                            ) // OPEN STREET MAP
-                          : SizedBox(
-                              height: size.height * 0.55,
-                              width: size.width,
-                              child: fm.FlutterMap(
-                                mapController:
-                                    context.read<HomeBloc>().fmController,
-                                options: fm.MapOptions(
-                                  onTap: (tapPosition, latLng) {
-                                    context.read<HomeBloc>().currentLatLng =
-                                        LatLng(
-                                            latLng.latitude, latLng.longitude);
-                                    WidgetsBinding.instance
-                                        .addPostFrameCallback((_) {
-                                      if (context
-                                              .read<HomeBloc>()
-                                              .fmController !=
-                                          null) {
-                                        context
                                             .read<HomeBloc>()
-                                            .fmController!
-                                            .move(latLng, 15);
-                                      }
-                                    });
-                                    context.read<HomeBloc>().add(
-                                        UpdateLocationEvent(
-                                            isFromHomePage: true,
-                                            latLng: context
-                                                .read<HomeBloc>()
-                                                .currentLatLng,
-                                            mapType: context
-                                                .read<HomeBloc>()
-                                                .mapType));
-                                  },
-                                  onMapEvent: (v) async {
-                                    if (v.source ==
-                                        fm.MapEventSource
-                                            .nonRotatedSizeChange) {
-                                      context.read<HomeBloc>().fmLatLng =
-                                          fmlt.LatLng(v.camera.center.latitude,
-                                              v.camera.center.longitude);
-                                      context.read<HomeBloc>().currentLatLng =
-                                          LatLng(v.camera.center.latitude,
-                                              v.camera.center.longitude);
-                                      context.read<HomeBloc>().add(
-                                          UpdateLocationEvent(
-                                              isFromHomePage: true,
-                                              latLng: context
-                                                  .read<HomeBloc>()
-                                                  .currentLatLng,
-                                              mapType: context
-                                                  .read<HomeBloc>()
-                                                  .mapType));
-                                      // context.read<HomeBloc>().add(
-                                      //     UpdateMarkerEvent(
-                                      //         fmLatLng: context
-                                      //             .read<HomeBloc>()
-                                      //             .fmLatLng));
-                                    }
-                                    if (v.source == fm.MapEventSource.onDrag) {
-                                      context.read<HomeBloc>().currentLatLng =
-                                          LatLng(v.camera.center.latitude,
-                                              v.camera.center.longitude);
-                                      context
-                                          .read<HomeBloc>()
-                                          .add(UpdateEvent());
-                                    }
-                                    if (v.source == fm.MapEventSource.dragEnd) {
-                                      context.read<HomeBloc>().add(
-                                          UpdateLocationEvent(
-                                              isFromHomePage: true,
-                                              latLng: LatLng(
-                                                  v.camera.center.latitude,
-                                                  v.camera.center.longitude),
-                                              mapType: context
-                                                  .read<HomeBloc>()
-                                                  .mapType));
-                                    }
-                                  },
-                                  onPositionChanged: (p, l) async {
-                                    if (l == false) {
-                                      context.read<HomeBloc>().currentLatLng =
-                                          LatLng(p.center.latitude,
-                                              p.center.longitude);
-                                      context
-                                          .read<HomeBloc>()
-                                          .add(UpdateEvent());
-                                    }
-                                  },
-                                  initialCenter: fmlt.LatLng(
-                                      context
-                                          .read<HomeBloc>()
-                                          .currentLatLng
-                                          .latitude,
-                                      context
-                                          .read<HomeBloc>()
-                                          .currentLatLng
-                                          .longitude),
-                                  initialZoom: 16,
-                                  minZoom: 13,
-                                  maxZoom: 20,
+                                            .addressList
+                                            .length -
+                                        1) ...[
+                              Container(
+                                height: size.width * 0.05,
+                                width: size.width * 0.05,
+                                decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                        width: 0.3,
+                                        color:
+                                            Theme.of(context).disabledColor)),
+                                child: Center(
+                                  child: MyText(
+                                      text: '$index',
+                                      textStyle: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
                                 ),
-                                children: [
-                                   fm.TileLayer(
-                                    urlTemplate: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? 'https://cartodb-basemaps-{s}.global.ssl.fastly.net/{z}/{x}/{y}@4x.png'
-                                        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                    fallbackUrl: Theme.of(context).brightness ==
-                                            Brightness.dark
-                                        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                                        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                    subdomains: const ['a', 'b', 'c', 'd', 'e'],
-                                    userAgentPackageName: 'com.example.app',
-                                  ),
-                                  fm.MarkerLayer(
-                                    markers: context
-                                        .read<HomeBloc>()
-                                        .markerList
-                                        .asMap()
-                                        .map(
-                                          (k, value) {
-                                            final marker = context
+                              ),
+                              SizedBox(width: size.width * 0.02),
+                            ],
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(5),
+                                    border: Border.all(
+                                        width: 0.3,
+                                        color:
+                                            Theme.of(context).disabledColor)),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: CustomTextField(
+                                        controller: controller,
+                                        enabled: true,
+                                        filled: true,
+                                        autofocus: context
                                                 .read<HomeBloc>()
-                                                .markerList
-                                                .elementAt(k);
-                                            return MapEntry(
-                                              k,
-                                              fm.Marker(
-                                                // key: Key('10'),
-                                                // rotate: true,
-                                                alignment: Alignment.topCenter,
-                                                point: fmlt.LatLng(
-                                                    marker.position.latitude,
-                                                    marker.position.longitude),
-                                                child: RotationTransition(
-                                                  turns: AlwaysStoppedAnimation(
-                                                      marker.rotation / 360),
-                                                  child: Image.asset(
-                                                    (marker.markerId.value
-                                                            .toString()
-                                                            .contains('truck'))
-                                                        ? AppImages.truck
-                                                        : marker.markerId.value
-                                                                .toString()
-                                                                .contains(
-                                                                    'motor_bike')
-                                                            ? AppImages.bike
-                                                            : marker.markerId
-                                                                    .value
-                                                                    .toString()
-                                                                    .contains(
-                                                                        'auto')
-                                                                ? AppImages.auto
-                                                                : marker.markerId
-                                                                        .value
-                                                                        .toString()
-                                                                        .contains(
-                                                                            'lcv')
-                                                                    ? AppImages
-                                                                        .lcv
-                                                                    : marker.markerId
-                                                                            .value
-                                                                            .toString()
-                                                                            .contains(
-                                                                                'ehcv')
-                                                                        ? AppImages
-                                                                            .ehcv
-                                                                        : marker.markerId.value.toString().contains('hatchback')
-                                                                            ? AppImages.hatchBack
-                                                                            : marker.markerId.value.toString().contains('hcv')
-                                                                                ? AppImages.hcv
-                                                                                : marker.markerId.value.toString().contains('mcv')
-                                                                                    ? AppImages.mcv
-                                                                                    : marker.markerId.value.toString().contains('luxury')
-                                                                                        ? AppImages.luxury
-                                                                                        : marker.markerId.value.toString().contains('premium')
-                                                                                            ? AppImages.premium
-                                                                                            : marker.markerId.value.toString().contains('suv')
-                                                                                                ? AppImages.suv
-                                                                                                : AppImages.car,
-                                                    width: 16,
-                                                    height: 25,
+                                                .recentSearchPlaces
+                                                .isEmpty
+                                            ? (!widget.arg.pickUpChange &&
+                                                    index == 1)
+                                                ? true
+                                                : (widget.arg.pickUpChange &&
+                                                        index == 0)
+                                                    ? true
+                                                    : false
+                                            : false,
+                                        keyboardType: TextInputType.text,
+                                        fillColor: Theme.of(context)
+                                            .disabledColor
+                                            .withOpacity(0.1),
+                                        enabledBorder: OutlineInputBorder(
+                                            borderSide: BorderSide(
+                                                width: 0.5,
+                                                color: Theme.of(context)
+                                                    .disabledColor
+                                                    .withOpacity(0.3))),
+                                        focusedBorder: OutlineInputBorder(
+                                            borderSide: BorderSide(
+                                                width: 0.8,
+                                                color: Theme.of(context)
+                                                    .disabledColor)),
+                                        hintText: (index ==
+                                                context
+                                                        .read<HomeBloc>()
+                                                        .addressList
+                                                        .length -
+                                                    1)
+                                            ? AppLocalizations.of(context)!
+                                                .destinationAddress
+                                            : (index == 0)
+                                                ? AppLocalizations.of(context)!
+                                                    .pickupAddress
+                                                : AppLocalizations.of(context)!
+                                                    .addStopAddress,
+                                        hintTextStyle: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium,
+                                        prefixConstraints: BoxConstraints(
+                                            maxWidth: size.width * 0.065),
+                                        prefixIcon: (index == 0 ||
+                                                index ==
+                                                    context
+                                                            .read<HomeBloc>()
+                                                            .addressList
+                                                            .length -
+                                                        1)
+                                            ? Center(
+                                                child: (index == 0)
+                                                    ? const PickupIcon()
+                                                    : const DropIcon())
+                                            : null,
+                                        suffixConstraints: BoxConstraints(
+                                            maxWidth: size.width * 0.2),
+                                        suffixIcon: controller.text.isNotEmpty
+                                            ? Padding(
+                                                padding: const EdgeInsets.only(
+                                                    right: 10, left: 10),
+                                                child: InkWell(
+                                                  onTap: () {
+                                                    context
+                                                            .read<HomeBloc>()
+                                                            .addressList[index] =
+                                                        AddressModel(
+                                                            orderId: '',
+                                                            address: '',
+                                                            lat: 0,
+                                                            lng: 0,
+                                                            name: '',
+                                                            number: '',
+                                                            pickup: false);
+                                                    context
+                                                        .read<HomeBloc>()
+                                                        .addressTextControllerList[
+                                                            index]
+                                                        .text = '';
+                                                    if (context
+                                                        .read<HomeBloc>()
+                                                        .autoSearchPlaces
+                                                        .isNotEmpty) {
+                                                      context
+                                                          .read<HomeBloc>()
+                                                          .searchInfoMessage = '';
+                                                      context
+                                                          .read<HomeBloc>()
+                                                          .autoSearchPlaces
+                                                          .clear();
+                                                    }
+                                                    context
+                                                        .read<HomeBloc>()
+                                                        .add(UpdateEvent());
+                                                  },
+                                                  child: Icon(
+                                                    Icons.cancel,
+                                                    size: 20,
+                                                    color: Theme.of(context)
+                                                        .disabledColor
+                                                        .withOpacity(0.4),
                                                   ),
                                                 ),
-                                              ),
-                                            );
-                                          },
-                                        )
-                                        .values
-                                        .toList(),
-                                  ),
-                                  const fm.RichAttributionWidget(
-                                    attributions: [],
-                                  ),
-                                ],
+                                              )
+                                            : null,
+                                        onTap: () {
+                                          context
+                                                  .read<HomeBloc>()
+                                                  .isPickupSelect =
+                                              (index == 0) ? true : false;
+                                          context
+                                              .read<HomeBloc>()
+                                              .choosenAddressIndex = index;
+                                          context
+                                              .read<HomeBloc>()
+                                              .add(UpdateEvent());
+                                        },
+                                        onChange: (value) {
+                                          context
+                                              .read<HomeBloc>()
+                                              .debouncer
+                                              .run(() {
+                                            if (value.isEmpty) {
+                                              context
+                                                      .read<HomeBloc>()
+                                                      .addressList[index] =
+                                                  AddressModel(
+                                                      orderId: '',
+                                                      address: '',
+                                                      lat: 0,
+                                                      lng: 0,
+                                                      name: '',
+                                                      number: '',
+                                                      pickup: false);
+                                            }
+                                            context.read<HomeBloc>().add(
+                                                SearchPlacesEvent(
+                                                    context: context,
+                                                    mapType: widget.arg.mapType,
+                                                    countryCode: widget.arg
+                                                        .userData.countryCode,
+                                                    latLng: (widget.arg
+                                                                .pickupLatLng !=
+                                                            null)
+                                                        ? widget
+                                                            .arg.pickupLatLng!
+                                                        : (widget.arg
+                                                                    .dropLatLng !=
+                                                                null)
+                                                            ? widget
+                                                                .arg.dropLatLng!
+                                                            : const LatLng(
+                                                                0, 0),
+                                                    enbleContryRestrictMap: widget
+                                                        .arg
+                                                        .userData
+                                                        .enableCountryRestrictOnMap,
+                                                    searchText: value));
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    SizedBox(width: size.width * 0.01),
+                                    Icon(Icons.drag_indicator_rounded,
+                                        color:
+                                            Theme.of(context).primaryColorDark,
+                                        size: 20),
+                                    SizedBox(width: size.width * 0.01),
+                                  ],
+                                ),
                               ),
                             ),
-                      // Marker in the center of the screen
-                      Positioned(
-                        child: Container(
-                          height: size.height * 0.8,
-                          width: size.width * 1,
-                          alignment: Alignment.center,
-                          child: Padding(
-                            padding: EdgeInsets.only(
-                                bottom: screenWidth * 0.6 + size.width * 0.06),
-                            child: Image.asset(
-                              AppImages.pickupIcon,
-                              width: size.width * 0.08,
-                              height: size.width * 0.08,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (context.read<HomeBloc>().confirmPinAddress)
-                        //Remove position for envato code
-                        Positioned(
-                          top: screenWidth * 0.1,
-                          // right: screenWidth * 0.38,
-                          child: Container(
-                            height: size.height * 0.8,
-                            width: size.width,
-                            alignment: Alignment.center,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  padding: EdgeInsets.only(
-                                      bottom: screenWidth * 0.6 +
-                                          size.width * 0.06),
-                                  child: Container(
+                            (context.read<HomeBloc>().addressList.length > 2)
+                                ? InkWell(
+                                    onTap: () {
+                                      context
+                                          .read<HomeBloc>()
+                                          .addressList
+                                          .removeAt(index);
+                                      context
+                                          .read<HomeBloc>()
+                                          .addressTextControllerList
+                                          .removeAt(index);
+                                      context
+                                          .read<HomeBloc>()
+                                          .add(UpdateEvent());
+                                    },
+                                    child: Padding(
                                       padding: EdgeInsets.only(
-                                          left: size.width * 0.02,
-                                          right: size.width * 0.02,
-                                          top: size.width * 0.01,
-                                          bottom: size.width * 0.01),
-                                      decoration: BoxDecoration(
-                                        // color: Theme.of(context).dividerColor.withOpacity(0.9),
-                                        color: AppColors.white,
-                                        borderRadius: BorderRadius.circular(
-                                            size.width * 0.02),
+                                          left: size.width * 0.015),
+                                      child: Icon(
+                                        Icons.close,
+                                        size: 20,
+                                        color: Theme.of(context).disabledColor,
                                       ),
-                                      child: MyText(
-                                          text:
-                                              'Drag To Get Address Feature Not Available In demo',
-                                          textStyle: Theme.of(context)
-                                              .textTheme
-                                              .labelLarge!
-                                              .copyWith(
-                                                  color: AppColors.black))),
-                                )
-                              ],
-                            ),
-                          ),
+                                    ),
+                                  )
+                                : const SizedBox()
+                          ],
                         ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            // Locate Me
-            Positioned(
-              bottom: size.height * 0.5,
-              right: size.width * 0.03,
-              child: InkWell(
-                onTap: () {
-                  // Remove confirmPinAddress for envato code
-                  context.read<HomeBloc>().confirmPinAddress = false;
-                  context.read<HomeBloc>().add(
-                      LocateMeEvent(mapType: context.read<HomeBloc>().mapType));
-                },
-                child: Container(
-                  height: size.width * 0.11,
-                  width: size.width * 0.11,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.white,
-                    border: Border.all(
-                      width: 1.2,
-                      color: AppColors.black.withOpacity(0.8),
-                    ),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.my_location,
-                      size: size.width * 0.05,
-                      color: AppColors.black,
-                    ),
+                      );
+                    },
                   ),
                 ),
               ),
-            ),
-            //Navigation and location bar
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    NavigationIconWidget(
-                      icon: InkWell(
-                        onTap: () {
-                          if (context.read<HomeBloc>().userData != null) {
-                            Navigator.pushNamed(context, AccountPage.routeName,
-                                    arguments: AccountPageArguments(
-                                        userData:
-                                            context.read<HomeBloc>().userData!))
-                                .then(
-                              (value) {
-                                if (!context.mounted) return;
-                                context
-                                    .read<HomeBloc>()
-                                    .add(GetDirectionEvent());
-                                if (value != null) {
-                                  context.read<HomeBloc>().userData =
-                                      value as UserDetail;
-                                  context.read<HomeBloc>().add(UpdateEvent());
-                                }
-                              },
-                            );
-                          }
-                        },
-                        child: Icon(Icons.menu,
-                            size: 20,
-                            color: Theme.of(context).primaryColorDark),
-                      ),
-                      isShadowWidget: true,
-                    ),
-                    SizedBox(width: size.width * 0.03),
-                    InkWell(
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget buildFavoriteLocations(BuildContext context,
+      List<FavoriteLocationData> favLocations, Size size) {
+    bool isHomeAvailable = false;
+    bool isWorkAvailable = false;
+    bool isOthersAvailable = false;
+    for (var element in favLocations) {
+      if (element.addressName == 'Home') {
+        isHomeAvailable = true;
+      } else if (element.addressName == 'Work') {
+        isWorkAvailable = true;
+      } else {
+        isOthersAvailable = true;
+      }
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 16),
+        child: Row(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: List.generate(
+                favLocations.length,
+                (index) {
+                  final location = favLocations.elementAt(index);
+                  return Padding(
+                    padding: EdgeInsets.only(right: size.width * 0.02),
+                    child: InkWell(
                       onTap: () {
-                        if (context
-                                    .read<HomeBloc>()
-                                    .userData!
-                                    .enableModulesForApplications ==
-                                'both' ||
-                            context
-                                    .read<HomeBloc>()
-                                    .userData!
-                                    .enableModulesForApplications ==
-                                'taxi') {
-                          context.read<HomeBloc>().add(
-                              DestinationSelectEvent(isPickupChange: true));
-                        } else {
-                          context
-                              .read<HomeBloc>()
-                              .add(ServiceTypeChangeEvent(serviceTypeIndex: 1));
-                        }
+                        context.read<HomeBloc>().add(FavLocationSelectEvent(
+                            address: location,
+                            isPickupSelect:
+                                context.read<HomeBloc>().isPickupSelect));
                       },
                       child: Container(
-                        width: size.width * 0.78,
                         decoration: BoxDecoration(
-                            color: Theme.of(context).scaffoldBackgroundColor,
-                            borderRadius: BorderRadius.circular(5),
-                            boxShadow: [
-                              BoxShadow(
-                                  blurRadius: 3,
-                                  spreadRadius: 2,
-                                  color: Theme.of(context).shadowColor)
-                            ]),
+                          borderRadius: BorderRadius.circular(20),
+                          color:
+                              Theme.of(context).disabledColor.withOpacity(0.1),
+                        ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 5, vertical: 6),
+                              horizontal: 8, vertical: 5),
                           child: Row(
                             children: [
-                              const PickupIcon(),
-                              SizedBox(width: size.width * 0.01),
-                              SizedBox(
-                                width: size.width * 0.63,
-                                child: MyText(
-                                    text: context
-                                        .read<HomeBloc>()
-                                        .currentLocation,
-                                    textStyle:
-                                        Theme.of(context).textTheme.bodyMedium,
-                                    overflow: TextOverflow.ellipsis),
+                              Icon(
+                                (location.addressName.toLowerCase() == 'home')
+                                    ? Icons.home_outlined
+                                    : (location.addressName.toLowerCase() ==
+                                            'work')
+                                        ? Icons.business_center_outlined
+                                        : Icons.home_work_outlined,
+                                size: 18,
+                                color: Theme.of(context).primaryColor,
                               ),
-                              Icon(Icons.edit_outlined,
-                                  size: 18,
-                                  color: Theme.of(context).disabledColor),
+                              const SizedBox(width: 5),
+                              MyText(
+                                text: location.addressName,
+                                textStyle: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium!
+                                    .copyWith(fontWeight: FontWeight.bold),
+                              )
                             ],
                           ),
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: BlocBuilder<HomeBloc, HomeState>(
-                builder: (context, state) {
-                  double sheetSize = context.read<HomeBloc>().sheetSize;
-                  double minChildSize =
-                      context.read<HomeBloc>().minChildSize; // Bottom
-                  double midChildSize =
-                      context.read<HomeBloc>().midChildSize; // Midpoint
-                  double maxChildSize =
-                      context.read<HomeBloc>().maxChildSize; // Top
-
-                  return StatefulBuilder(
-                    builder: (BuildContext context, StateSetter set) {
-                      double currentSize = sheetSize;
-
-                      return GestureDetector(
-                        onVerticalDragUpdate: (details) {
-                          final dragAmount = details.primaryDelta ?? 0;
-                          set(() {
-                            currentSize = (currentSize -
-                                    dragAmount / context.size!.height)
-                                .clamp(minChildSize, maxChildSize);
-                          });
-                          context
-                              .read<HomeBloc>()
-                              .add(UpdateScrollPositionEvent(currentSize));
-                        },
-                        onVerticalDragEnd: (details) {
-                          set(() {
-                            // If scrolling up, snap to the top or midpoint
-                            if (details.velocity.pixelsPerSecond.dy < 0) {
-                              currentSize = currentSize >= midChildSize
-                                  ? maxChildSize
-                                  : midChildSize;
-                            }
-                            // If scrolling down, skip the midpoint and go directly to the bottom
-                            else {
-                              currentSize = minChildSize;
-                            }
-                          });
-
-                          context
-                              .read<HomeBloc>()
-                              .add(UpdateScrollPositionEvent(currentSize));
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          height:
-                              MediaQuery.of(context).size.height * currentSize,
-                          curve: Curves.easeInOut,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).scaffoldBackgroundColor,
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(30)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Theme.of(context).shadowColor,
-                                  blurRadius: 5,
-                                  spreadRadius: 1,
-                                ),
-                              ],
-                            ),
-                            child: SingleChildScrollView(
-                              physics: const NeverScrollableScrollPhysics(),
-                              child: bottomSheetBuilder(size, context),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
                   );
                 },
               ),
             ),
+            Row(
+              children: [
+                if (!isHomeAvailable)
+                  Padding(
+                    padding: EdgeInsets.only(right: size.width * 0.02),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pushNamed(
+                                context, FavoriteLocationPage.routeName,
+                                arguments: FavouriteLocationPageArguments(
+                                    userData: widget.arg.userData))
+                            .then(
+                          (value) {
+                            if (!context.mounted) return;
+                            if (value != null) {
+                              context.read<HomeBloc>().userData =
+                                  value as UserDetail;
+                              context.read<HomeBloc>().add(UpdateEvent());
+                            }
+                          },
+                        );
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          color:
+                              Theme.of(context).disabledColor.withOpacity(0.1),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 5),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.add_circle_outline,
+                                size: 18,
+                                color: Theme.of(context)
+                                    .disabledColor
+                                    .withOpacity(0.5),
+                              ),
+                              const SizedBox(width: 5),
+                              MyText(
+                                text: AppLocalizations.of(context)!.home,
+                                textStyle: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium!
+                                    .copyWith(fontWeight: FontWeight.bold),
+                              )
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (!isWorkAvailable)
+                  Padding(
+                    padding: EdgeInsets.only(right: size.width * 0.02),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pushNamed(
+                                context, FavoriteLocationPage.routeName,
+                                arguments: FavouriteLocationPageArguments(
+                                    userData: widget.arg.userData))
+                            .then(
+                          (value) {
+                            if (!context.mounted) return;
+                            if (value != null) {
+                              context.read<HomeBloc>().userData =
+                                  value as UserDetail;
+                              context.read<HomeBloc>().add(UpdateEvent());
+                            }
+                          },
+                        );
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          color:
+                              Theme.of(context).disabledColor.withOpacity(0.1),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 5),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.add_circle_outline,
+                                size: 18,
+                                color: Theme.of(context)
+                                    .disabledColor
+                                    .withOpacity(0.5),
+                              ),
+                              const SizedBox(width: 5),
+                              MyText(
+                                text: AppLocalizations.of(context)!.work,
+                                textStyle: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium!
+                                    .copyWith(fontWeight: FontWeight.bold),
+                              )
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (!isOthersAvailable)
+                  Padding(
+                    padding: EdgeInsets.only(right: size.width * 0.02),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pushNamed(
+                                context, FavoriteLocationPage.routeName,
+                                arguments: FavouriteLocationPageArguments(
+                                    userData: widget.arg.userData))
+                            .then(
+                          (value) {
+                            if (!context.mounted) return;
+                            if (value != null) {
+                              context.read<HomeBloc>().userData =
+                                  value as UserDetail;
+                              context.read<HomeBloc>().add(UpdateEvent());
+                            }
+                          },
+                        );
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          color:
+                              Theme.of(context).disabledColor.withOpacity(0.1),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 5),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.add_circle_outline,
+                                size: 18,
+                                color: Theme.of(context)
+                                    .disabledColor
+                                    .withOpacity(0.5),
+                              ),
+                              const SizedBox(width: 5),
+                              MyText(
+                                text: AppLocalizations.of(context)!.others,
+                                textStyle: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium!
+                                    .copyWith(fontWeight: FontWeight.bold),
+                              )
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+              ],
+            )
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 
-  Widget servicesWidget(BuildContext context, Size size) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        MyText(
-          text: AppLocalizations.of(context)!.service,
-          textStyle: Theme.of(context).textTheme.bodyLarge,
+  Widget buildRecentRoutes(BuildContext context, Size size) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SizedBox(
+        width: size.width,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MyText(
+              text: AppLocalizations.of(context)!.recentSearchRoutes,
+              textStyle: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                  color: Theme.of(context).disabledColor,
+                  fontWeight: FontWeight.w600),
+              maxLines: 1,
+            ),
+            SizedBox(height: size.width * 0.02),
+            SizedBox(
+              width: size.width,
+              height: size.width * (context.read<HomeBloc>().recentRouteHeight),
+              child: PageView.builder(
+                controller: context.read<HomeBloc>().recentRoutesPageController,
+                scrollDirection: Axis.horizontal,
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: context
+                    .read<HomeBloc>()
+                    .recentRoutes
+                    .where((element) =>
+                        element.transportType == widget.arg.transportType)
+                    .length,
+                itemBuilder: (context, index) {
+                  return InkWell(
+                    onTap: () {
+                      context.read<HomeBloc>().add(RecentRouteSelectEvent(
+                          selectedRoute:
+                              context.read<HomeBloc>().recentRoutes[index]));
+                    },
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 5),
+                      decoration: BoxDecoration(
+                        border: Border.all(),
+                        color: Theme.of(context).disabledColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: size.width * 0.018),
+                                  child: const PickupIcon(),
+                                ),
+                                Expanded(
+                                  child: MyText(
+                                    text: context
+                                        .read<HomeBloc>()
+                                        .recentRoutes[index]
+                                        .pickShortAddress,
+                                    textStyle: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall!
+                                        .copyWith(fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (context
+                                .read<HomeBloc>()
+                                .recentRoutes[index]
+                                .searchStops
+                                .data
+                                .isNotEmpty) ...[
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16),
+                                child: VerticalDotDividerWidget(),
+                              ),
+                              ListView.separated(
+                                itemCount: context
+                                    .read<HomeBloc>()
+                                    .recentRoutes[index]
+                                    .searchStops
+                                    .data
+                                    .length,
+                                physics: const NeverScrollableScrollPhysics(),
+                                padding: EdgeInsets.zero,
+                                shrinkWrap: true,
+                                itemBuilder: (context, ind) {
+                                  return Row(
+                                    mainAxisAlignment: MainAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: EdgeInsets.symmetric(
+                                            horizontal: size.width * 0.023),
+                                        child: Container(
+                                          height: 16,
+                                          width: 16,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color:
+                                                Theme.of(context).primaryColor,
+                                          ),
+                                          child: Center(
+                                            child: MyText(
+                                              text: '${ind + 1}',
+                                              textStyle: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall!
+                                                  .copyWith(
+                                                      color: AppColors.white),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: MyText(
+                                          text: context
+                                              .read<HomeBloc>()
+                                              .recentRoutes[index]
+                                              .searchStops
+                                              .data[ind]
+                                              .shortAddress,
+                                          textStyle: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall!
+                                              .copyWith(fontSize: 13),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                                separatorBuilder: (context, index) {
+                                  return const Row(
+                                    mainAxisAlignment: MainAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: EdgeInsets.symmetric(
+                                            horizontal: 16),
+                                        child: VerticalDotDividerWidget(),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16),
+                              child: VerticalDotDividerWidget(),
+                            ),
+                            Row(
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: size.width * 0.015),
+                                  child: const DropIcon(),
+                                ),
+                                Expanded(
+                                  child: MyText(
+                                    text: context
+                                        .read<HomeBloc>()
+                                        .recentRoutes[index]
+                                        .dropShortAddress,
+                                    textStyle: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall!
+                                        .copyWith(fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                onPageChanged: (value) {
+                  context
+                      .read<HomeBloc>()
+                      .add(RecentRoutesChangeIndex(routesIndex: value));
+                },
+              ),
+            ),
+            SizedBox(height: size.height * 0.02),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                context
+                    .read<HomeBloc>()
+                    .recentRoutes
+                    .where((element) =>
+                        element.transportType == widget.arg.transportType)
+                    .length,
+                (index) {
+                  return Container(
+                    margin: const EdgeInsets.only(right: 5),
+                    height:
+                        context.read<HomeBloc>().routesIndex == index ? 10 : 8,
+                    width:
+                        context.read<HomeBloc>().routesIndex == index ? 10 : 8,
+                    decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: context.read<HomeBloc>().routesIndex == index
+                            ? Theme.of(context).primaryColor
+                            : Theme.of(context).splashColor),
+                  );
+                },
+              ),
+            )
+          ],
         ),
-        SizedBox(height: size.width * 0.025),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
+      ),
+    );
+  }
+
+  Widget buildRecentSearchLocations(BuildContext context, Size size) {
+    return Padding(
+      padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SizedBox(
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (context.read<HomeBloc>().userData != null &&
-                  (context
-                              .read<HomeBloc>()
-                              .userData!
-                              .enableModulesForApplications ==
-                          'taxi' ||
-                      context
-                              .read<HomeBloc>()
-                              .userData!
-                              .enableModulesForApplications ==
-                          'both'))
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: InkWell(
+              MyText(
+                text: AppLocalizations.of(context)!.searchPlaces,
+                textStyle: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                    color: Theme.of(context).disabledColor,
+                    fontWeight: FontWeight.w600),
+                maxLines: 1,
+              ),
+              SizedBox(height: size.width * 0.02),
+              ListView.separated(
+                itemCount: context.read<HomeBloc>().recentSearchPlaces.length,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                itemBuilder: (_, index) {
+                  final recentPlace = context
+                      .read<HomeBloc>()
+                      .recentSearchPlaces
+                      .elementAt(index);
+                  return InkWell(
                     onTap: () {
-                      context
-                          .read<HomeBloc>()
-                          .add(ServiceTypeChangeEvent(serviceTypeIndex: 0));
+                      context.read<HomeBloc>().add(
+                            RecentSearchPlaceSelectEvent(
+                                transportType: widget.arg.transportType,
+                                address: recentPlace,
+                                isPickupSelect:
+                                    context.read<HomeBloc>().isPickupSelect),
+                          );
                     },
-                    child: Container(
-                      height: size.width * 0.19,
-                      width: size.width * 0.21,
-                      decoration: BoxDecoration(
-                        color: context.read<HomeBloc>().selectedServiceType == 0
-                            ? Theme.of(context).primaryColorLight
-                            : Theme.of(context).splashColor,
-                        border: Border.all(
-                          color:
-                              context.read<HomeBloc>().selectedServiceType == 0
-                                  ? Theme.of(context).primaryColor
-                                  : Theme.of(context).dividerColor,
-                        ),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Column(
+                    child: SizedBox(
+                      height: size.width * 0.14,
+                      child: Row(
                         children: [
-                          Image.asset(
-                            context.read<HomeBloc>().serviceTypeImages[0],
-                            height: size.width * 0.10,
+                          Container(
+                            height: size.height * 0.075,
+                            width: size.width * 0.075,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .disabledColor
+                                  .withOpacity(0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.location_pin,
+                              size: 20,
+                              color: Theme.of(context)
+                                  .disabledColor
+                                  .withOpacity(0.75),
+                            ),
                           ),
-                          const SizedBox(height: 6),
-                          MyText(
-                            text: AppLocalizations.of(context)!.taxi,
-                            textStyle:
-                                Theme.of(context).textTheme.bodySmall!.copyWith(
-                                      color: AppColors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                          SizedBox(width: size.width * 0.025),
+                          SizedBox(
+                            width: size.width * 0.75,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                MyText(
+                                  text: recentPlace.address.split(',')[0],
+                                  textStyle: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium!
+                                      .copyWith(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold),
+                                  maxLines: 1,
+                                ),
+                                MyText(
+                                  text: recentPlace.address,
+                                  textStyle: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall!
+                                      .copyWith(
+                                          color:
+                                              Theme.of(context).disabledColor),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ),
-              if (context.read<HomeBloc>().userData != null &&
-                  (context
-                              .read<HomeBloc>()
-                              .userData!
-                              .enableModulesForApplications ==
-                          'delivery' ||
-                      context
-                              .read<HomeBloc>()
-                              .userData!
-                              .enableModulesForApplications ==
-                          'both'))
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: InkWell(
-                    onTap: () {
-                      context
-                          .read<HomeBloc>()
-                          .add(ServiceTypeChangeEvent(serviceTypeIndex: 1));
-                    },
-                    child: Container(
-                      height: size.width * 0.19,
-                      width: size.width * 0.21,
-                      decoration: BoxDecoration(
-                        color: context.read<HomeBloc>().selectedServiceType == 1
-                            ? Theme.of(context).primaryColorLight
-                            : Theme.of(context).splashColor,
-                        border: Border.all(
-                          color:
-                              context.read<HomeBloc>().selectedServiceType == 1
-                                  ? Theme.of(context).primaryColor
-                                  : Theme.of(context).dividerColor,
-                        ),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Column(
-                        children: [
-                          Image.asset(
-                            context.read<HomeBloc>().serviceTypeImages[1],
-                            height: size.width * 0.10,
-                          ),
-                          const SizedBox(height: 6),
-                          MyText(
-                            text: AppLocalizations.of(context)!.delivery,
-                            // text: 'Delivery',
-                            textStyle:
-                                Theme.of(context).textTheme.bodySmall!.copyWith(
-                                      color: AppColors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              if (context.read<HomeBloc>().userData != null &&
-                  (context.read<HomeBloc>().userData!.showRentalRide))
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: InkWell(
-                    onTap: () {
-                      context
-                          .read<HomeBloc>()
-                          .add(ServiceTypeChangeEvent(serviceTypeIndex: 2));
-                    },
-                    child: Container(
-                      height: size.width * 0.19,
-                      width: size.width * 0.21,
-                      decoration: BoxDecoration(
-                        color: context.read<HomeBloc>().selectedServiceType == 2
-                            ? Theme.of(context).primaryColorLight
-                            : Theme.of(context).splashColor,
-                        border: Border.all(
-                          color:
-                              context.read<HomeBloc>().selectedServiceType == 2
-                                  ? Theme.of(context).primaryColor
-                                  : Theme.of(context).dividerColor,
-                        ),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Column(
-                        children: [
-                          Image.asset(
-                            context.read<HomeBloc>().serviceTypeImages[2],
-                            height: size.width * 0.11,
-                          ),
-                          const SizedBox(height: 2),
-                          MyText(
-                            text: AppLocalizations.of(context)!.rental,
-                            textStyle:
-                                Theme.of(context).textTheme.bodySmall!.copyWith(
-                                      color: AppColors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              if (context.read<HomeBloc>().userData != null &&
-                  (context
-                          .read<HomeBloc>()
-                          .userData!
-                          .showOutstationRideFeature ==
-                      '1'))
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: InkWell(
-                    onTap: () {
-                      if (context
-                          .read<HomeBloc>()
-                          .pickupAddressList
-                          .isNotEmpty) {
-                        context
-                            .read<HomeBloc>()
-                            .add(ServiceTypeChangeEvent(serviceTypeIndex: 3));
-                      }
-                    },
-                    child: Container(
-                      height: size.width * 0.19,
-                      width: size.width * 0.21,
-                      decoration: BoxDecoration(
-                        color: context.read<HomeBloc>().selectedServiceType == 2
-                            ? Theme.of(context).primaryColorLight
-                            : Theme.of(context).splashColor,
-                        border: Border.all(
-                          color:
-                              context.read<HomeBloc>().selectedServiceType == 2
-                                  ? Theme.of(context).primaryColor
-                                  : Theme.of(context).dividerColor,
-                        ),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Column(
-                        children: [
-                          Image.asset(
-                            context.read<HomeBloc>().serviceTypeImages[3],
-                            height: size.width * 0.11,
-                          ),
-                          const SizedBox(height: 2),
-                          MyText(
-                            text: AppLocalizations.of(context)!.outStation,
-                            textStyle:
-                                Theme.of(context).textTheme.bodySmall!.copyWith(
-                                      color: AppColors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
+                  );
+                },
+                separatorBuilder: (context, index) {
+                  return Divider(
+                      color: Theme.of(context).dividerColor.withOpacity(0.5));
+                },
+              ),
+              SizedBox(height: size.width * 0.15),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 
-  Widget bannerWidget(BuildContext context, Size size) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: MyText(
-            text: AppLocalizations.of(context)!.exclusiveOffers,
-            textStyle: Theme.of(context).textTheme.bodyLarge,
-          ),
+  Container buildSelectFromMap(Size size, BuildContext context) {
+    return Container(
+      height: size.width * 0.1,
+      width: double.infinity,
+      decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          boxShadow: [
+            BoxShadow(
+              offset: const Offset(0, -1),
+              color: Theme.of(context).shadowColor,
+            )
+          ]),
+      child: InkWell(
+        onTap: () {
+          context.read<HomeBloc>().add(SelectFromMapEvent(
+              selectedAddressIndex:
+                  context.read<HomeBloc>().choosenAddressIndex,
+              isPickUpEdit:
+                  context.read<HomeBloc>().isPickupSelect ? true : false));
+        },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.pin_drop_outlined),
+            MyText(text: AppLocalizations.of(context)!.selectFromMap),
+          ],
         ),
-        SizedBox(height: size.width * 0.025),
-        CarouselSlider(
-          items: List.generate(
-            context.read<HomeBloc>().userData!.bannerImage.data.length,
-            (index) {
-              return CachedNetworkImage(
-                imageUrl: context
-                    .read<HomeBloc>()
-                    .userData!
-                    .bannerImage
-                    .data[index]
-                    .image,
-                // height: size.width * 0.2,
-                width: size.width,
-                fit: BoxFit.fill,
-                placeholder: (context, url) => const Center(
-                  child: CircularProgressIndicator(),
-                ),
-                errorWidget: (context, url, error) => const Center(
-                  child: Text(
-                    "",
-                    style: TextStyle(
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          options: CarouselOptions(
-            height: size.width * 0.2,
-            aspectRatio: 16 / 9,
-            viewportFraction: 0.95,
-            initialPage: 0,
-            enableInfiniteScroll: false,
-            reverse: false,
-            autoPlay: false,
-            autoPlayInterval: const Duration(seconds: 2),
-            autoPlayAnimationDuration: const Duration(milliseconds: 300),
-            autoPlayCurve: Curves.easeInOut,
-            enlargeCenterPage: true,
-            enlargeFactor: 0.3,
-            scrollDirection: Axis.horizontal,
-            onPageChanged: (index, reason) {
-              context.read<HomeBloc>().bannerIndex = index;
-              context.read<HomeBloc>().add(UpdateEvent());
-            },
-          ),
-        ),
-        SizedBox(height: size.width * 0.025),
-        if (context.read<HomeBloc>().userData!.bannerImage.data.length > 1)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(
-              context.read<HomeBloc>().userData!.bannerImage.data.length,
-              (index) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: Container(
-                    height: size.width * 0.02,
-                    width: size.width * 0.02,
-                    decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: context.read<HomeBloc>().bannerIndex == index
-                            ? Theme.of(context).primaryColor
-                            : Theme.of(context).primaryColorLight),
-                  ),
-                );
-              },
-            ),
-          )
-      ],
+      ),
     );
   }
 }
