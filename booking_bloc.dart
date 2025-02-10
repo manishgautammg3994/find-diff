@@ -4,8 +4,8 @@ import 'dart:math' as math;
 import 'package:intl/intl.dart' as intel;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:restart_tagxi/common/tobitmap.dart';
-import 'package:restart_tagxi/core/utils/custom_text.dart';
+import 'package:user/common/tobitmap.dart';
+import 'package:user/core/utils/custom_text.dart';
 import 'package:vector_math/vector_math.dart' as vector;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -326,6 +326,10 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         event.arg.title == 'Send Parcel') {
       showPaymentChange = true;
     }
+    if (event.arg.isWithoutDestinationRide != null &&
+        event.arg.isWithoutDestinationRide!) {
+      showBiddingVehicles = false;
+    }
     if (event.arg.isOutstationRide) {
       showDateTime = intel.DateFormat('dd/MM/yyyy (hh:mm a)').format(
           DateTime.now().add(Duration(
@@ -418,7 +422,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                 polyLine: event.arg.polyString,
                 pickupAddressList: pickUpAddressList,
                 dropAddressList: dropAddressList,
-                isOutstationRide: event.arg.isOutstationRide));
+                isOutstationRide: event.arg.isOutstationRide,
+                isWithoutDestinationRide:
+                    event.arg.isWithoutDestinationRide ?? false));
           }
           // if ((event.arg.isRentalRide == null || (event.arg.isRentalRide != null && !event.arg.isRentalRide!)) &&
           //     (event.arg.isWithoutDestinationRide != null ||
@@ -437,7 +443,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                 polyLine: '',
                 pickupAddressList: pickUpAddressList,
                 dropAddressList: [],
-                isOutstationRide: event.arg.isOutstationRide));
+                isOutstationRide: event.arg.isOutstationRide,
+                isWithoutDestinationRide:
+                    event.arg.isWithoutDestinationRide ?? false));
           }
           markerList.add(Marker(
             markerId: const MarkerId("pick"),
@@ -459,86 +467,12 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                     (event.arg.isWithoutDestinationRide == null)) &&
                 ((event.arg.isRentalRide != null && !event.arg.isRentalRide!) ||
                     event.arg.isRentalRide == null)) {
-              markerList.add(Marker(
-                anchor: const Offset(0.5, 0.0),
-                markerId: const MarkerId("distance"),
-                position: LatLng(double.parse(event.arg.droplat),
-                    double.parse(event.arg.droplng)),
-                icon: await Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 10),
-                      height: 40,
-                      width: 100,
-                      decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(5),
-                          border:
-                              Border.all(color: AppColors.primary, width: 1)),
-                      // padding: EdgeInsets.all(10),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: const BoxDecoration(
-                                borderRadius: BorderRadius.only(
-                                    topLeft: Radius.circular(5),
-                                    bottomLeft: Radius.circular(5)),
-                                color: AppColors.primary),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                MyText(
-                                  text: (double.tryParse(distance)! / 1000)
-                                      .toStringAsFixed(0),
-                                  textStyle: AppTextStyle.normalStyle()
-                                      .copyWith(
-                                          color: ThemeData.light()
-                                              .scaffoldBackgroundColor,
-                                          fontSize: 12),
-                                ),
-                                MyText(
-                                  text: 'KM',
-                                  textStyle: AppTextStyle.normalStyle()
-                                      .copyWith(
-                                          color: ThemeData.light()
-                                              .scaffoldBackgroundColor,
-                                          fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: Container(
-                              alignment: Alignment.center,
-                              // width: 60,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                  borderRadius: const BorderRadius.only(
-                                      topRight: Radius.circular(5),
-                                      bottomRight: Radius.circular(5)),
-                                  color: ThemeData.light()
-                                      .scaffoldBackgroundColor),
-                              child: MyText(
-                                text: (((double.tryParse(distance)! / 1000) *
-                                            1.5) >
-                                        60)
-                                    ? '${(((double.tryParse(distance)! / 1000) * 1.5) / 60).toStringAsFixed(0)} hrs'
-                                    : '${((double.tryParse(distance)! / 1000) * 1.5).toStringAsFixed(0)} mins',
-                                textStyle: AppTextStyle.normalStyle().copyWith(
-                                    color: AppColors.primary, fontSize: 12),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )).toBitmapDescriptor(
-                  logicalSize: const Size(100, 30),
-                  imageSize: const Size(100, 30),
-                ),
-              ));
+              await addDistanceMarker(
+                  LatLng(double.parse(event.arg.droplat),
+                      double.parse(event.arg.droplng)),
+                  double.tryParse(distance)!,
+                  time: double.parse(duration));
             }
-
             markerList.add(Marker(
               markerId: const MarkerId("drop"),
               position: LatLng(double.parse(event.arg.droplat),
@@ -559,86 +493,11 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                   ((event.arg.isRentalRide != null &&
                           !event.arg.isRentalRide!) ||
                       event.arg.isRentalRide == null)) {
-                markerList.add(Marker(
-                  anchor: const Offset(0.5, 0.0),
-                  markerId: const MarkerId("distance"),
-                  position: LatLng(double.parse(event.arg.droplat),
-                      double.parse(event.arg.droplng)),
-                  icon: await Directionality(
-                      textDirection: TextDirection.ltr,
-                      child: Container(
-                        margin: const EdgeInsets.only(top: 10),
-                        height: 40,
-                        width: 100,
-                        decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(5),
-                            border:
-                                Border.all(color: AppColors.primary, width: 1)),
-                        // padding: EdgeInsets.all(10),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: const BoxDecoration(
-                                  borderRadius: BorderRadius.only(
-                                      topLeft: Radius.circular(5),
-                                      bottomLeft: Radius.circular(5)),
-                                  color: AppColors.primary),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  MyText(
-                                    text: (double.tryParse(distance)! / 1000)
-                                        .toStringAsFixed(0),
-                                    textStyle: AppTextStyle.normalStyle()
-                                        .copyWith(
-                                            color: ThemeData.light()
-                                                .scaffoldBackgroundColor,
-                                            fontSize: 12),
-                                  ),
-                                  MyText(
-                                    text: 'KM',
-                                    textStyle: AppTextStyle.normalStyle()
-                                        .copyWith(
-                                            color: ThemeData.light()
-                                                .scaffoldBackgroundColor,
-                                            fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: Container(
-                                alignment: Alignment.center,
-                                // width: 60,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                    borderRadius: const BorderRadius.only(
-                                        topRight: Radius.circular(5),
-                                        bottomRight: Radius.circular(5)),
-                                    color: ThemeData.light()
-                                        .scaffoldBackgroundColor),
-                                child: MyText(
-                                  text: (((double.tryParse(distance)! / 1000) *
-                                              1.5) >
-                                          60)
-                                      ? '${(((double.tryParse(distance)! / 1000) * 1.5) / 60).toStringAsFixed(0)} hrs'
-                                      : '${((double.tryParse(distance)! / 1000) * 1.5).toStringAsFixed(0)} mins',
-                                  textStyle: AppTextStyle.normalStyle()
-                                      .copyWith(
-                                          color: AppColors.primary,
-                                          fontSize: 12),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )).toBitmapDescriptor(
-                    logicalSize: const Size(100, 30),
-                    imageSize: const Size(100, 30),
-                  ),
-                ));
+                await addDistanceMarker(
+                    LatLng(double.parse(event.arg.droplat),
+                        double.parse(event.arg.droplng)),
+                    double.tryParse(distance)!,
+                    time: double.parse(duration));
               }
               markerList.add(Marker(
                 markerId: MarkerId("drop$i"),
@@ -661,86 +520,11 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                   ((event.arg.isRentalRide != null &&
                           !event.arg.isRentalRide!) ||
                       event.arg.isRentalRide == null)) {
-                markerList.add(Marker(
-                  anchor: const Offset(0.5, 0.0),
-                  markerId: const MarkerId("distance"),
-                  position: LatLng(double.parse(event.arg.droplat),
-                      double.parse(event.arg.droplng)),
-                  icon: await Directionality(
-                      textDirection: TextDirection.ltr,
-                      child: Container(
-                        margin: const EdgeInsets.only(top: 10),
-                        height: 40,
-                        width: 100,
-                        decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(5),
-                            border:
-                                Border.all(color: AppColors.primary, width: 1)),
-                        // padding: EdgeInsets.all(10),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: const BoxDecoration(
-                                  borderRadius: BorderRadius.only(
-                                      topLeft: Radius.circular(5),
-                                      bottomLeft: Radius.circular(5)),
-                                  color: AppColors.primary),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  MyText(
-                                    text: (double.tryParse(distance)! / 1000)
-                                        .toStringAsFixed(0),
-                                    textStyle: AppTextStyle.normalStyle()
-                                        .copyWith(
-                                            color: ThemeData.light()
-                                                .scaffoldBackgroundColor,
-                                            fontSize: 12),
-                                  ),
-                                  MyText(
-                                    text: 'KM',
-                                    textStyle: AppTextStyle.normalStyle()
-                                        .copyWith(
-                                            color: ThemeData.light()
-                                                .scaffoldBackgroundColor,
-                                            fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: Container(
-                                alignment: Alignment.center,
-                                // width: 60,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                    borderRadius: const BorderRadius.only(
-                                        topRight: Radius.circular(5),
-                                        bottomRight: Radius.circular(5)),
-                                    color: ThemeData.light()
-                                        .scaffoldBackgroundColor),
-                                child: MyText(
-                                  text: (((double.tryParse(distance)! / 1000) *
-                                              1.5) >
-                                          60)
-                                      ? '${(((double.tryParse(distance)! / 1000) * 1.5) / 60).toStringAsFixed(0)} hrs'
-                                      : '${((double.tryParse(distance)! / 1000) * 1.5).toStringAsFixed(0)} mins',
-                                  textStyle: AppTextStyle.normalStyle()
-                                      .copyWith(
-                                          color: AppColors.primary,
-                                          fontSize: 12),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )).toBitmapDescriptor(
-                    logicalSize: const Size(100, 30),
-                    imageSize: const Size(100, 30),
-                  ),
-                ));
+                await addDistanceMarker(
+                    LatLng(double.parse(event.arg.droplat),
+                        double.parse(event.arg.droplng)),
+                    double.tryParse(distance)!,
+                    time: double.parse(duration));
               }
               markerList.add(Marker(
                 markerId: const MarkerId("drop"),
@@ -777,21 +561,11 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                 isRentalRide: true);
           }
         }
-        // add(BookingEtaRequestEvent(
-        //     picklat: event.arg.picklat,
-        //     picklng: event.arg.picklng,
-        //     droplat: event.arg.droplat,
-        //     droplng: event.arg.droplng,
-        //     ridetype: 1,
-        //     transporttype: transportType,
-        //     distance: distance,
-        //     duration: duration));
 
         if (requestData != null) {
           if (event.arg.userData.metaRequest != "") {
             if (requestData!.isBidRide == 1) {
               biddingStreamRequest();
-              // isTripStart = true;
               isBiddingRideSearching = true;
               nearByVechileSubscription?.cancel();
               etaDurationStream?.cancel();
@@ -867,16 +641,6 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
     emit(ShowEtaInfoState(infoIndex: event.infoIndex));
   }
 
-  // Future<void> selectedEtaVehicleIndex(
-  //     BookingEtaSelectEvent event, Emitter<BookingState> emit) async {
-  //   selectedVehicleIndex = event.selectedVehicleIndex;
-  //   paymentList = isMultiTypeVechiles
-  //       ? sortedEtaDetailsList[selectedVehicleIndex].paymentType.split(",")
-  //       : etaDetailsList[selectedVehicleIndex].paymentType.split(",");
-  //   scheduleDateTime = '';
-  //   showDateTime = '';
-  //   emit(EtaSelectState(selectedVehicleIndex));
-  // }
   Future<void> selectedEtaVehicleIndex(
       BookingEtaSelectEvent event, Emitter<BookingState> emit) async {
     selectedVehicleIndex = event.selectedVehicleIndex;
@@ -1045,7 +809,8 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         polyLine: event.polyLine,
         pickupAddressList: event.pickupAddressList,
         dropAddressList: event.dropAddressList,
-        isOutstationRide: event.isOutstationRide);
+        isOutstationRide: event.isOutstationRide,
+        isWithoutDestinationRide: event.isWithoutDestinationRide);
     data.fold(
       (error) {
         if (error.message == 'logout') {
@@ -1273,7 +1038,6 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
           }
         }
       }
-      // add(UpdateEvent());
     });
   }
 
@@ -1378,7 +1142,6 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         isTripStart = false;
         isNormalRideSearching = false;
         isBiddingRideSearching = false;
-        // showPolyline = true;
         emit(BookingUpdateState());
         if (requestData != null) {
           if (requestData!.isBidRide == 1) {
@@ -1447,7 +1210,6 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
               rideStreamStart == null ||
               rideStreamStart?.isPaused == true) {
             streamRide();
-            // driverStreamRide();
             isTripStart = true;
             nearByVechileSubscription?.cancel();
             etaDurationStream?.cancel();
@@ -1472,14 +1234,12 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
           }
         }
         if (requestData!.isTripStart != 1 && requestData!.acceptedAt != '') {
-          // markerList.clear();
           nearByVechileSubscription?.cancel();
           etaDurationStream?.cancel();
         }
         if ((requestData!.isTripStart != 1 ||
                 requestData!.isOutStation == '1') &&
-            (requestData!.arrivedAt != '' ||
-                requestData!.isOutStation == '1') &&
+            (requestData!.arrivedAt != '') &&
             (requestData!.dropLat != '0' &&
                 requestData!.dropLng != '0' &&
                 !requestData!.isRental)) {
@@ -1522,47 +1282,114 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
           final BitmapDescriptor suv = await BitmapDescriptor.asset(
               const ImageConfiguration(size: Size(16, 30)), AppImages.suv);
 
-          add(PolylineEvent(
-            pickLat: double.parse(requestData!.pickLat),
-            pickLng: double.parse(requestData!.pickLng),
-            dropLat: double.parse(requestData!.dropLat),
-            dropLng: double.parse(requestData!.dropLng),
-            stops: (requestData != null &&
-                    requestData!.arrivedAt != "" &&
-                    dropAddressList.length > 1)
-                ? dropAddressList
-                : [],
-            pickAddress: '',
-            dropAddress: '',
-            icon: (driverData!.vehicleTypeIcon == 'truck')
-                ? truckMarker
-                : (driverData!.vehicleTypeIcon == 'motor_bike')
-                    ? bikeMarker
-                    : (driverData!.vehicleTypeIcon == 'auto')
-                        ? autoMarker
-                        : (driverData!.vehicleTypeIcon == 'lcv')
-                            ? lcv
-                            : (driverData!.vehicleTypeIcon == 'ehcv')
-                                ? ehcv
-                                : (driverData!.vehicleTypeIcon == 'hatchback')
-                                    ? hatchBack
-                                    : (driverData!.vehicleTypeIcon == 'hcv')
-                                        ? hcv
-                                        : (driverData!.vehicleTypeIcon == 'mcv')
-                                            ? mcv
-                                            : (driverData!.vehicleTypeIcon ==
-                                                    'luxury')
-                                                ? luxury
-                                                : (driverData!
-                                                            .vehicleTypeIcon ==
-                                                        'premium')
-                                                    ? premium
-                                                    : (driverData!
-                                                                .vehicleTypeIcon ==
-                                                            'suv')
-                                                        ? suv
-                                                        : carMarker,
-          ));
+          if (requestData!.polyLine.isNotEmpty) {
+            markerList.add(Marker(
+              markerId: const MarkerId("pick"),
+              position: LatLng(double.parse(requestData!.pickLat),
+                  double.parse(requestData!.pickLng)),
+              icon: await MarkerWidget(
+                isPickup: true,
+                text: requestData!.pickAddress,
+              ).toBitmapDescriptor(
+                  logicalSize: const Size(30, 30),
+                  imageSize: const Size(200, 200)),
+            ));
+            if (userData != null &&
+                requestData!.requestStops.data.isEmpty &&
+                ((userData!.metaRequest != null &&
+                        userData!.metaRequest != "") ||
+                    (userData!.onTripRequest != null &&
+                        userData!.onTripRequest != ""))) {
+              markerList.add(Marker(
+                markerId: const MarkerId("drop"),
+                position: LatLng(double.parse(requestData!.dropLat),
+                    double.parse(requestData!.dropLng)),
+                icon: await MarkerWidget(
+                  isPickup: false,
+                  text: requestData!.dropAddress,
+                ).toBitmapDescriptor(
+                    logicalSize: const Size(30, 30),
+                    imageSize: const Size(200, 200)),
+              ));
+            } else if (requestData!.requestStops.data.isNotEmpty) {
+              for (var i = 0; i < requestData!.requestStops.data.length; i++) {
+                markerList.add(Marker(
+                  markerId: MarkerId("drop$i"),
+                  position: LatLng(requestData!.requestStops.data[i].lat,
+                      requestData!.requestStops.data[i].lng),
+                  icon: await MarkerWidget(
+                    isPickup: false,
+                    count: '${i + 1}',
+                    text: requestData!.requestStops.data[i].address,
+                  ).toBitmapDescriptor(
+                      logicalSize: const Size(30, 30),
+                      imageSize: const Size(200, 200)),
+                ));
+              }
+            } else {
+              markerList.add(Marker(
+                markerId: const MarkerId("drop"),
+                position: LatLng(double.parse(requestData!.dropLat),
+                    double.parse(requestData!.dropLng)),
+                icon: await MarkerWidget(
+                  isPickup: true,
+                  text: requestData!.dropAddress,
+                ).toBitmapDescriptor(
+                    logicalSize: const Size(30, 30),
+                    imageSize: const Size(200, 200)),
+              ));
+            }
+            mapBound(
+              double.parse(requestData!.pickLat),
+              double.parse(requestData!.pickLng),
+              double.parse(requestData!.dropLat),
+              double.parse(requestData!.dropLng),
+            );
+            decodeEncodedPolyline(requestData!.polyLine);
+          } else {
+            add(PolylineEvent(
+              pickLat: double.parse(requestData!.pickLat),
+              pickLng: double.parse(requestData!.pickLng),
+              dropLat: double.parse(requestData!.dropLat),
+              dropLng: double.parse(requestData!.dropLng),
+              stops: (requestData != null &&
+                      requestData!.arrivedAt != "" &&
+                      dropAddressList.length > 1)
+                  ? dropAddressList
+                  : [],
+              pickAddress: '',
+              dropAddress: '',
+              icon: (driverData!.vehicleTypeIcon == 'truck')
+                  ? truckMarker
+                  : (driverData!.vehicleTypeIcon == 'motor_bike')
+                      ? bikeMarker
+                      : (driverData!.vehicleTypeIcon == 'auto')
+                          ? autoMarker
+                          : (driverData!.vehicleTypeIcon == 'lcv')
+                              ? lcv
+                              : (driverData!.vehicleTypeIcon == 'ehcv')
+                                  ? ehcv
+                                  : (driverData!.vehicleTypeIcon == 'hatchback')
+                                      ? hatchBack
+                                      : (driverData!.vehicleTypeIcon == 'hcv')
+                                          ? hcv
+                                          : (driverData!.vehicleTypeIcon ==
+                                                  'mcv')
+                                              ? mcv
+                                              : (driverData!.vehicleTypeIcon ==
+                                                      'luxury')
+                                                  ? luxury
+                                                  : (driverData!
+                                                              .vehicleTypeIcon ==
+                                                          'premium')
+                                                      ? premium
+                                                      : (driverData!
+                                                                  .vehicleTypeIcon ==
+                                                              'suv')
+                                                          ? suv
+                                                          : carMarker,
+            ));
+          }
         } else {
           if (mapType == 'google_map') {
             if (googleMapController != null) {
@@ -1683,14 +1510,20 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         var val = event.snapshot.value.toString();
         debugPrint('waiting Time : $val');
         waitingTime = int.parse(val);
-      }
-      // else if (event.snapshot.key.toString() == 'total_waiting_time') {
-      //   var val = event.snapshot.value.toString();
-      //   debugPrint('waiting Time : $val');
-      //   waitingTime = int.parse(val);
-      // }
-      else if (event.snapshot.key.toString() == 'is_accept') {
+      } else if (event.snapshot.key.toString() == 'is_accept') {
         add(BookingGetUserDetailsEvent(requestId: requestData!.id));
+      }
+      if (event.snapshot.key.toString() == 'polyline') {
+        polyLine = event.snapshot.child('polyline').value.toString();
+        driverStreamRide(isFromRequstStream: true);
+      }
+      if (event.snapshot.key.toString() == 'distance') {
+        distance = event.snapshot.child('distance').value.toString();
+        add(UpdateEvent());
+      }
+      if (event.snapshot.key.toString() == 'duration') {
+        duration = event.snapshot.child('duration').value.toString();
+        add(UpdateEvent());
       }
     });
 
@@ -1711,20 +1544,27 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         var val = event.snapshot.value.toString();
         debugPrint('waiting Time : $val');
         waitingTime = int.parse(val);
-      }
-      // else if (event.snapshot.key.toString() == 'total_waiting_time') {
-      //   var val = event.snapshot.value.toString();
-      //   debugPrint('waiting Time : $val');
-      //   waitingTime = int.parse(val);
-      // }
-      else if (event.snapshot.key.toString() == 'is_accept') {
+      } else if (event.snapshot.key.toString() == 'is_accept') {
         driverStreamRide();
         add(BookingGetUserDetailsEvent(requestId: requestData!.id));
+      }
+
+      if (event.snapshot.key.toString() == 'polyline') {
+        polyLine = event.snapshot.child('polyline').value.toString();
+        driverStreamRide(isFromRequstStream: true);
+      }
+      if (event.snapshot.key.toString() == 'distance') {
+        distance = event.snapshot.child('distance').value.toString();
+        add(UpdateEvent());
+      }
+      if (event.snapshot.key.toString() == 'duration') {
+        duration = event.snapshot.child('duration').value.toString();
+        add(UpdateEvent());
       }
     });
   }
 
-  driverStreamRide({int? driverId}) {
+  driverStreamRide({int? driverId, bool? isFromRequstStream}) {
     if (driverDataStream != null) driverDataStream?.cancel();
     driverDataStream = FirebaseDatabase.instance
         .ref('drivers/driver_${(driverId != null) ? driverId : driverData!.id}')
@@ -1775,7 +1615,7 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
           ((mapType == 'google_map' && googleMapController != null) ||
               (mapType != 'google_map' && fmController != null))) {
         animationController = AnimationController(
-            vsync: vsync, duration: const Duration(milliseconds: 1000));
+            vsync: vsync, duration: const Duration(milliseconds: 1500));
         animateCar(
             driverPosition!.latitude,
             driverPosition!.longitude,
@@ -1812,64 +1652,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                                                         : carMarker,
             mapType);
       }
-      if (requestData != null &&
-          ((requestData!.isRental && requestData!.arrivedAt == "") ||
-              (requestData!.dropLat != '0' &&
-                  requestData!.dropLng != '0' &&
-                  !requestData!.isRental) ||
-              (requestData!.dropLat == '0' &&
-                  requestData!.dropLng == '0' &&
-                  !requestData!.isRental &&
-                  requestData!.arrivedAt == ""))) {
-        add(PolylineEvent(
-            pickLat: driver["l"][0],
-            pickLng: driver["l"][1],
-            dropLat: (requestData != null && requestData!.arrivedAt == "")
-                ? double.parse(requestData!.pickLat)
-                : double.parse(requestData!.dropLat),
-            dropLng: (requestData != null && requestData!.arrivedAt == "")
-                ? double.parse(requestData!.pickLng)
-                : double.parse(requestData!.dropLng),
-            stops: (requestData != null &&
-                    requestData!.arrivedAt != "" &&
-                    dropAddressList.length > 1)
-                ? dropAddressList
-                : [],
-            isDriverToPick:
-                (requestData != null && requestData!.arrivedAt == "")
-                    ? true
-                    : false,
-            pickAddress: '',
-            dropAddress: '',
-            markerId: 'marker#${driver['id']}#${driver['vehicle_type_icon']}',
-            isDriverStream: true,
-            icon: (driver['vehicle_type_icon'] == 'truck')
-                ? truckMarker
-                : (driver['vehicle_type_icon'] == 'motor_bike')
-                    ? bikeMarker
-                    : (driver['vehicle_type_icon'] == 'auto')
-                        ? autoMarker
-                        : (driver['vehicle_type_icon'] == 'lcv')
-                            ? lcv
-                            : (driver['vehicle_type_icon'] == 'ehcv')
-                                ? ehcv
-                                : (driver['vehicle_type_icon'] == 'hatchback')
-                                    ? hatchBack
-                                    : (driver['vehicle_type_icon'] == 'hcv')
-                                        ? hcv
-                                        : (driver['vehicle_type_icon'] == 'mcv')
-                                            ? mcv
-                                            : (driver['vehicle_type_icon'] ==
-                                                    'luxury')
-                                                ? luxury
-                                                : (driver['vehicle_type_icon'] ==
-                                                        'premium')
-                                                    ? premium
-                                                    : (driver['vehicle_type_icon'] ==
-                                                            'suv')
-                                                        ? suv
-                                                        : carMarker));
-      } else {
+      if (isFromRequstStream != null && isFromRequstStream) {
+        driverPosition ??= LatLng(driver["l"][0], driver["l"][1]);
+        markerList.clear();
         markerList.add(Marker(
             markerId: MarkerId(
                 'marker#${driver['id']}#${driver['vehicle_type_icon']}'),
@@ -1900,6 +1685,62 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                                                             'suv')
                                                         ? suv
                                                         : carMarker));
+        if (requestData != null &&
+            requestData!.arrivedAt != "" &&
+            dropAddressList.length > 1) {
+          for (var i = 0; i < dropAddressList.length; i++) {
+            markerList.add(Marker(
+              markerId: MarkerId("drop$i"),
+              position: LatLng(dropAddressList[i].lat, dropAddressList[i].lng),
+              icon: await MarkerWidget(
+                isPickup: false,
+                count: '${i + 1}',
+                text: dropAddressList[i].address,
+              ).toBitmapDescriptor(
+                  logicalSize: const Size(30, 30),
+                  imageSize: const Size(200, 200)),
+            ));
+          }
+        }
+        await addDistanceMarker(
+            (requestData != null && requestData!.arrivedAt == "")
+                ? LatLng(double.parse(requestData!.pickLat),
+                    double.parse(requestData!.pickLng))
+                : LatLng(double.parse(requestData!.dropLat),
+                    double.parse(requestData!.dropLng)),
+            double.tryParse(distance)!,
+            time: double.parse(duration));
+        markerList.add(Marker(
+          markerId: const MarkerId("drop"),
+          position: (requestData != null && requestData!.arrivedAt == "")
+              ? LatLng(double.parse(requestData!.pickLat),
+                  double.parse(requestData!.pickLng))
+              : LatLng(double.parse(requestData!.dropLat),
+                  double.parse(requestData!.dropLng)),
+          icon: await MarkerWidget(
+            isPickup: (requestData != null && requestData!.arrivedAt == "")
+                ? true
+                : false,
+            text: requestData!.dropAddress,
+          ).toBitmapDescriptor(
+              logicalSize: const Size(30, 30), imageSize: const Size(200, 200)),
+        ));
+        if (requestData != null && requestData!.arrivedAt == "") {
+          mapBound(
+              driver["l"][0],
+              driver["l"][1],
+              double.parse(requestData!.pickLat),
+              double.parse(requestData!.pickLng),
+              isInitCall: false);
+        } else {
+          mapBound(
+              driver["l"][0],
+              driver["l"][1],
+              double.parse(requestData!.dropLat),
+              double.parse(requestData!.dropLng),
+              isInitCall: false);
+        }
+        decodeEncodedPolyline(polyLine, isDriverStream: true);
       }
     });
   }
@@ -2442,7 +2283,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
               polyLine: polyLine,
               pickupAddressList: event.arg!.pickupAddressList,
               dropAddressList: event.arg!.stopAddressList,
-              isOutstationRide: event.arg!.isOutstationRide));
+              isOutstationRide: event.arg!.isOutstationRide,
+              isWithoutDestinationRide:
+                  event.arg!.isWithoutDestinationRide ?? false));
         }
         if (event.icon != null) {
           driverPosition = LatLng(event.pickLat, event.pickLng);
@@ -2456,78 +2299,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                 (event.arg!.isWithoutDestinationRide == null)) &&
             ((event.arg!.isRentalRide != null && !event.arg!.isRentalRide!) ||
                 event.arg!.isRentalRide == null)) {
-          markerList.add(Marker(
-            anchor: const Offset(0.5, 0.0),
-            markerId: const MarkerId("distance"),
-            position: LatLng(event.dropLat, event.dropLng),
-            icon: await Directionality(
-                textDirection: TextDirection.ltr,
-                child: Container(
-                  margin: const EdgeInsets.only(top: 10),
-                  height: 40,
-                  width: 100,
-                  decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(color: AppColors.primary, width: 1)),
-                  // padding: EdgeInsets.all(10),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: const BoxDecoration(
-                            borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(5),
-                                bottomLeft: Radius.circular(5)),
-                            color: AppColors.primary),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            MyText(
-                              text: (double.tryParse(distance)! / 1000)
-                                  .toStringAsFixed(0),
-                              textStyle: AppTextStyle.normalStyle().copyWith(
-                                  color:
-                                      ThemeData.light().scaffoldBackgroundColor,
-                                  fontSize: 12),
-                            ),
-                            MyText(
-                              text: 'KM',
-                              textStyle: AppTextStyle.normalStyle().copyWith(
-                                  color:
-                                      ThemeData.light().scaffoldBackgroundColor,
-                                  fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: Container(
-                          alignment: Alignment.center,
-                          // width: 60,
-                          height: 40,
-                          decoration: BoxDecoration(
-                              borderRadius: const BorderRadius.only(
-                                  topRight: Radius.circular(5),
-                                  bottomRight: Radius.circular(5)),
-                              color: ThemeData.light().scaffoldBackgroundColor),
-                          child: MyText(
-                            text: (((double.tryParse(distance)! / 1000) * 1.5) >
-                                    60)
-                                ? '${(((double.tryParse(distance)! / 1000) * 1.5) / 60).toStringAsFixed(0)} hrs'
-                                : '${((double.tryParse(distance)! / 1000) * 1.5).toStringAsFixed(0)} mins',
-                            textStyle: AppTextStyle.normalStyle().copyWith(
-                                color: AppColors.primary, fontSize: 12),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                )).toBitmapDescriptor(
-              logicalSize: const Size(100, 30),
-              imageSize: const Size(100, 30),
-            ),
-          ));
+          await addDistanceMarker(
+              LatLng(event.dropLat, event.dropLng), double.tryParse(distance)!,
+              time: double.parse(duration));
         }
         markerList.add(Marker(
           markerId: event.markerId != null
@@ -2553,80 +2327,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                   (event.arg!.isWithoutDestinationRide == null)) &&
               ((event.arg!.isRentalRide != null && !event.arg!.isRentalRide!) ||
                   event.arg!.isRentalRide == null)) {
-            markerList.add(Marker(
-              anchor: const Offset(0.5, 0.0),
-              markerId: const MarkerId("distance"),
-              position: LatLng(event.dropLat, event.dropLng),
-              icon: await Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 10),
-                    height: 40,
-                    width: 100,
-                    decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(color: AppColors.primary, width: 1)),
-                    // padding: EdgeInsets.all(10),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: const BoxDecoration(
-                              borderRadius: BorderRadius.only(
-                                  topLeft: Radius.circular(5),
-                                  bottomLeft: Radius.circular(5)),
-                              color: AppColors.primary),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              MyText(
-                                text: (double.tryParse(distance)! / 1000)
-                                    .toStringAsFixed(0),
-                                textStyle: AppTextStyle.normalStyle().copyWith(
-                                    color: ThemeData.light()
-                                        .scaffoldBackgroundColor,
-                                    fontSize: 12),
-                              ),
-                              MyText(
-                                text: 'KM',
-                                textStyle: AppTextStyle.normalStyle().copyWith(
-                                    color: ThemeData.light()
-                                        .scaffoldBackgroundColor,
-                                    fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: Container(
-                            alignment: Alignment.center,
-                            // width: 60,
-                            height: 40,
-                            decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.only(
-                                    topRight: Radius.circular(5),
-                                    bottomRight: Radius.circular(5)),
-                                color:
-                                    ThemeData.light().scaffoldBackgroundColor),
-                            child: MyText(
-                              text: (((double.tryParse(distance)! / 1000) *
-                                          1.5) >
-                                      60)
-                                  ? '${(((double.tryParse(distance)! / 1000) * 1.5) / 60).toStringAsFixed(0)} hrs'
-                                  : '${((double.tryParse(distance)! / 1000) * 1.5).toStringAsFixed(0)} mins',
-                              textStyle: AppTextStyle.normalStyle().copyWith(
-                                  color: AppColors.primary, fontSize: 12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )).toBitmapDescriptor(
-                logicalSize: const Size(100, 30),
-                imageSize: const Size(100, 30),
-              ),
-            ));
+            await addDistanceMarker(LatLng(event.dropLat, event.dropLng),
+                double.tryParse(distance)!,
+                time: double.parse(duration));
           }
           markerList.add(Marker(
             markerId: const MarkerId("drop"),
@@ -2661,80 +2364,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                   (event.arg!.isWithoutDestinationRide == null)) &&
               ((event.arg!.isRentalRide != null && !event.arg!.isRentalRide!) ||
                   event.arg!.isRentalRide == null)) {
-            markerList.add(Marker(
-              anchor: const Offset(0.5, 0.0),
-              markerId: const MarkerId("distance"),
-              position: LatLng(event.dropLat, event.dropLng),
-              icon: await Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 10),
-                    height: 40,
-                    width: 100,
-                    decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(color: AppColors.primary, width: 1)),
-                    // padding: EdgeInsets.all(10),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: const BoxDecoration(
-                              borderRadius: BorderRadius.only(
-                                  topLeft: Radius.circular(5),
-                                  bottomLeft: Radius.circular(5)),
-                              color: AppColors.primary),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              MyText(
-                                text: (double.tryParse(distance)! / 1000)
-                                    .toStringAsFixed(0),
-                                textStyle: AppTextStyle.normalStyle().copyWith(
-                                    color: ThemeData.light()
-                                        .scaffoldBackgroundColor,
-                                    fontSize: 12),
-                              ),
-                              MyText(
-                                text: 'KM',
-                                textStyle: AppTextStyle.normalStyle().copyWith(
-                                    color: ThemeData.light()
-                                        .scaffoldBackgroundColor,
-                                    fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: Container(
-                            alignment: Alignment.center,
-                            // width: 60,
-                            height: 40,
-                            decoration: BoxDecoration(
-                                borderRadius: const BorderRadius.only(
-                                    topRight: Radius.circular(5),
-                                    bottomRight: Radius.circular(5)),
-                                color:
-                                    ThemeData.light().scaffoldBackgroundColor),
-                            child: MyText(
-                              text: (((double.tryParse(distance)! / 1000) *
-                                          1.5) >
-                                      60)
-                                  ? '${(((double.tryParse(distance)! / 1000) * 1.5) / 60).toStringAsFixed(0)} hrs'
-                                  : '${((double.tryParse(distance)! / 1000) * 1.5).toStringAsFixed(0)} mins',
-                              textStyle: AppTextStyle.normalStyle().copyWith(
-                                  color: AppColors.primary, fontSize: 12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )).toBitmapDescriptor(
-                logicalSize: const Size(100, 30),
-                imageSize: const Size(100, 30),
-              ),
-            ));
+            await addDistanceMarker(LatLng(event.dropLat, event.dropLng),
+                double.tryParse(distance)!,
+                time: double.parse(duration));
           }
           markerList.add(Marker(
             markerId: const MarkerId("drop"),
@@ -3148,8 +2780,7 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
                 if (dist > 100) {
                   animationController = AnimationController(
                     duration: const Duration(
-                        milliseconds: 1000), //Animation duration of marker
-
+                        milliseconds: 1500), //Animation duration of marker
                     vsync: vsync, //From the widget
                   );
                   animateCar(
@@ -3266,7 +2897,6 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         getBearing(LatLng(fromLat, fromLong), LatLng(toLat, toLong));
 
     dynamic carMarker;
-    // if (name == '' && number == '') {
     carMarker = Marker(
         markerId: MarkerId(markerid.toString()),
         position: LatLng(fromLat, fromLong),
@@ -3274,8 +2904,6 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         anchor: const Offset(0.5, 0.5),
         flat: true,
         draggable: false);
-
-    // mapMarkerSink.add(Set<Marker>.from(markers).toList());
 
     Tween<double> tween = Tween(begin: 0, end: 1);
 
@@ -3341,32 +2969,37 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
             flat: true,
             draggable: false);
 
-        //Adding new marker to our list and updating the google map UI.
-
         markerList.add(carMarker);
         add(UpdateEvent());
       });
 
     //Starting the animation
-
+    driverPosition = LatLng(toLat, toLong);
     await animationController!.forward();
     if (userData != null &&
         userData!.onTripRequest != "" &&
-        userData!.onTripRequest != null &&
-        map == 'google_map') {
-      controller.getVisibleRegion().then((value) {
-        if (value.contains(markerList
+        userData!.onTripRequest != null) {
+      if (map == 'google_map') {
+        controller.getVisibleRegion().then((value) {
+          if (value.contains(markerList
+                  .firstWhere(
+                      (element) => element.markerId == MarkerId(markerid))
+                  .position) ==
+              false) {
+            debugPrint('Animating correctly');
+            controller.animateCamera(CameraUpdate.newLatLng(markerList
                 .firstWhere((element) => element.markerId == MarkerId(markerid))
-                .position) ==
-            false) {
-          debugPrint('Animating correctly');
-          controller.animateCamera(CameraUpdate.newLatLng(markerList
-              .firstWhere((element) => element.markerId == MarkerId(markerid))
-              .position));
-        } else {
-          debugPrint('Animating wrongly');
-        }
-      });
+                .position));
+          } else {
+            debugPrint('Animating wrongly');
+          }
+        });
+      } else {
+        final latLng = markerList
+            .firstWhere((element) => element.markerId == MarkerId(markerid))
+            .position;
+        controller!.move(fmlt.LatLng(latLng.latitude, latLng.longitude), 13);
+      }
     }
 
     animationController = null;
@@ -3422,45 +3055,100 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
         userId: event.userId));
   }
 
-  // Future<void> filterEtaDetails(
-  //     FilterApplyEvent event, Emitter<BookingState> emit) async {
-  //   if (event.filterCapasity == 1 &&
-  //       event.filterCategory.isEmpty &&
-  //       event.filterBodyType.isEmpty &&
-  //       event.filterPermit.isEmpty) {
-  //     isEtaFilter = false;
-  //     selectedVehicleIndex = 0;
-  //   } else {
-  //     isEtaFilter = true;
-  //     selectedVehicleIndex = 999;
-  //   }
-  //   applyFilterCapasity = event.filterCapasity;
-  //   applyFilterCategory = event.filterCategory;
-  //   applyFilterBodyType = event.filterBodyType;
-  //   applyFilterPermit = event.filterPermit;
-  //   filterSuccess = checkFilterConditions(
-  //       isMultiTypeVechiles ? sortedEtaDetailsList : etaDetailsList);
-  //   emit(BookingUpdateState());
-  // }
+  Future addDistanceMarker(LatLng position, double distanceMeter,
+      {double? time}) async {
+    markerList.removeWhere(
+        (element) => element.markerId == const MarkerId('distance'));
+    double duration;
+    String totalDistance;
+    if (time != null) {
+      if (time > 0) {
+        duration = time;
+      } else {
+        duration = 2;
+      }
+    } else {
+      if ((distanceMeter / 1000) > 0) {
+        duration = ((distanceMeter / 1000) * 1.5).roundToDouble();
+      } else {
+        duration = 2;
+      }
+    }
 
-  // bool checkFilterConditions(List<EtaDetails> listEta) {
-  //   for (var eta in listEta) {
-  //     if ((transportType == 'taxi' &&
-  //             ((eta.categories.isNotEmpty &&
-  //                     eta.categories.every((element) =>
-  //                         applyFilterCategory.contains(element.id))) ||
-  //                 eta.capacity >= applyFilterCapasity)) ||
-  //         (transportType == 'delivery' &&
-  //             ((eta.categories.isNotEmpty &&
-  //                     eta.categories.every((element) =>
-  //                         applyFilterCategory.contains(element.id))) ||
-  //                 (eta.bodyType.isNotEmpty &&
-  //                     applyFilterBodyType.contains(eta.bodyType)) ||
-  //                 (eta.permitType.isNotEmpty &&
-  //                     applyFilterPermit.contains(eta.permitType))))) {
-  //       return true; // At least one item matches
-  //     }
-  //   }
-  //   return false; // No items match
-  // }
+    if ((distanceMeter / 1000).toStringAsFixed(0) == '0') {
+      totalDistance = '0.5';
+      duration = 1;
+    } else {
+      totalDistance = (distanceMeter / 1000).toStringAsFixed(0);
+    }
+
+    markerList.add(Marker(
+      anchor: const Offset(0.5, 0.0),
+      markerId: const MarkerId("distance"),
+      position: position,
+      icon: await Directionality(
+          textDirection: TextDirection.ltr,
+          child: Container(
+            margin: const EdgeInsets.only(top: 10),
+            height: 40,
+            width: 100,
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(color: AppColors.primary, width: 1)),
+            // padding: EdgeInsets.all(10),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                      borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(5),
+                          bottomLeft: Radius.circular(5)),
+                      color: AppColors.primary),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      MyText(
+                        text: totalDistance,
+                        textStyle: AppTextStyle.normalStyle().copyWith(
+                            color: ThemeData.light().scaffoldBackgroundColor,
+                            fontSize: 12),
+                      ),
+                      MyText(
+                        text: 'KM',
+                        textStyle: AppTextStyle.normalStyle().copyWith(
+                            color: ThemeData.light().scaffoldBackgroundColor,
+                            fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    alignment: Alignment.center,
+                    height: 40,
+                    decoration: BoxDecoration(
+                        borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(5),
+                            bottomRight: Radius.circular(5)),
+                        color: ThemeData.light().scaffoldBackgroundColor),
+                    child: MyText(
+                      text: ((duration) > 60)
+                          ? '${(duration / 60).toStringAsFixed(0)} hrs'
+                          : '${duration.toStringAsFixed(0)} mins',
+                      textStyle: AppTextStyle.normalStyle()
+                          .copyWith(color: AppColors.primary, fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )).toBitmapDescriptor(
+        logicalSize: const Size(100, 30),
+        imageSize: const Size(100, 30),
+      ),
+    ));
+    add(UpdateEvent());
+  }
 }
